@@ -8,13 +8,14 @@ import pickle
 import imageio
 import numpy as np
 import torch as pt
+from matplotlib import colors
 from pandas import read_csv
 from typing import Union, Tuple
 import matplotlib.pyplot as plt
 
-from pinn_cylinder2d.dataloader import read_data
+from dataloader import read_data
 from train_models import PINN
-from pinn_cylinder2d.train_models import f_equation_inverse
+from train_models import f_equation_inverse
 
 
 def plot_loss(path: str, name_loss_file: str = "loss") -> None:
@@ -46,7 +47,8 @@ def plot_loss(path: str, name_loss_file: str = "loss") -> None:
 
 
 def compare_at_select_time_series(path: str, file_name: str, lower_time: Union[float, int] = 4.0,
-                                  upper_time: Union[float, int] = 8.0, model_name: str = "model_train") -> None:
+                                  upper_time: Union[float, int] = 8.0, d: float = 0.1, mu: float = 1e-3,
+                                  u_infty: Union[int, float] = 1, model_name: str = "model_train") -> None:
     """
     predicts flow fields based on a trained model and plots them compared to the real flow fields
 
@@ -55,6 +57,9 @@ def compare_at_select_time_series(path: str, file_name: str, lower_time: Union[f
     :param lower_time: starting time for prediction
     :param upper_time: end time for prediction
     :param model_name: name of the trained model
+    :param d: diameter of cylinder
+    :param mu: kinematic viscosity
+    :param u_infty: free stream velocity at inlet
     :return: None
     """
     # read in the data and model, TODO: everything here is still quite inefficient...
@@ -78,8 +83,8 @@ def compare_at_select_time_series(path: str, file_name: str, lower_time: Union[f
     y = np.unique(x).reshape(-1, 1)
     mesh_x, mesh_y = np.meshgrid(x, y)
 
-    # determine the available time steps and create array with them
-    dt = round(t[1].item() - t[0].item(), 6)
+    # determine the available time steps and create array with them (1st: reverse non-dimensionalization)
+    dt = round((t[1]*(d * u_infty)).item() - (t[0]*(d * u_infty)).item(), 6)
     n = int((upper_time - lower_time) / dt) + 1
     time_lists = np.linspace(lower_time, upper_time, n)
 
@@ -99,16 +104,17 @@ def compare_at_select_time_series(path: str, file_name: str, lower_time: Union[f
         v_predict = v_predict.data.numpy().reshape(mesh_x.shape)
         p_predict = p_predict.data.numpy().reshape(mesh_x.shape)
 
-        # as sanity check just plot u_predict
-        plot_comparison_flow_field(path, [xy_cfd[:, 0], xy_cfd[:, 1], uv_cfd[:, 0, idx]], u_predict, select_time,
-                                   name="u", min_value=min_data[0, 3], max_value=max_data[0, 3])
-        plot_comparison_flow_field(path, [xy_cfd[:, 0], xy_cfd[:, 1], uv_cfd[:, 1, idx]], v_predict, select_time,
-                                   name="v", min_value=min_data[0, 4], max_value=max_data[0, 4])
-        plot_comparison_flow_field(path, [xy_cfd[:, 0], xy_cfd[:, 1], p_cfd[:, idx]], p_predict, select_time,
-                                   name="p", min_value=min_data[0, 5], max_value=max_data[0, 5])
+        # plot the velocity- and pressure field for each given time step
+        plot_comparison_flow_field(path, [xy_cfd[:, 0], xy_cfd[:, 1], uv_cfd[:, 0, idx]*u_infty], u_predict*u_infty,
+                                   select_time, name="u", min_value=min_data[0, 3], max_value=max_data[0, 3])
+        plot_comparison_flow_field(path, [xy_cfd[:, 0], xy_cfd[:, 1], uv_cfd[:, 1, idx]*u_infty], v_predict*u_infty,
+                                   select_time, name="v", min_value=min_data[0, 4], max_value=max_data[0, 4])
+        plot_comparison_flow_field(path, [xy_cfd[:, 0], xy_cfd[:, 1], p_cfd[:, idx] * (mu * u_infty) / d],
+                                   p_predict * (mu * u_infty) / d, select_time, name="p", min_value=min_data[0, 5],
+                                   max_value=max_data[0, 5])
 
         # free up some memory
-        del u_predict, v_predict, p_predict, x_selected, y_selected, t_selected
+        del u_predict, v_predict, p_predict, x_selected, y_selected, t_selected, x_flatten, t_flatten
 
 
 def plot_comparison_flow_field(path: str, q_selected, q_predict, select_time, min_value, max_value, name="u") -> None:
@@ -124,18 +130,18 @@ def plot_comparison_flow_field(path: str, q_selected, q_predict, select_time, mi
     :return: None
     """
     fig, ax = plt.subplots(2, 1, figsize=(10, 8))
-
+    v_norm = colors.Normalize(vmin=min_value, vmax=max_value)
     for i in range(2):
         if i == 0:
             ax[i].set_title(f"$Real$ $flow$ $field$ $at$ $t = " + "{:.2f}s$".format(select_time), usetex=True)
-            # TODO: vmin, vmax don't have any effect, bounds of color bar changing every time step...
-            real = ax[i].tricontourf(q_selected[0], q_selected[1], q_selected[2], levels=200, cmap="jet",
-                                     vmin=min_value, vmax=max_value)
-            cb = fig.colorbar(real, ax=ax[i], format="{x:.2f}")
+            # TODO: norm doesn't have any effect, bounds of color bar changing every time step...
+            real = ax[i].tricontourf(q_selected[0], q_selected[1], q_selected[2], levels=200, cmap="jet", norm=v_norm)
+            cb = fig.colorbar(real, ax=ax[i], format="{x:.2f}", norm=v_norm)
         else:
             ax[i].set_title(f"$Predicted$ $flow$ $field$ $at$ $t = " + "{:.2f}s$".format(select_time), usetex=True)
-            pred = ax[i].contourf(q_predict, levels=200, cmap="jet", vmin=min_value, vmax=max_value)
-            cb = fig.colorbar(pred, ax=ax[i], format="{x:.2f}")
+            # TODO: norm doesn't have any effect, bounds of color bar changing every time step...
+            pred = ax[i].contourf(q_predict, levels=200, cmap="jet", norm=v_norm)
+            cb = fig.colorbar(pred, ax=ax[i], format="{x:.2f}", norm=v_norm)
             # TODO: this gives a warning from plt
             ax[i].set_yticklabels(["{:.2f}".format(t) for t in ax[0].get_yticks()])
             ax[i].set_xticklabels(["{:.2f}".format(t) for t in ax[0].get_xticks()])

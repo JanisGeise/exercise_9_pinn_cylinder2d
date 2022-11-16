@@ -10,7 +10,7 @@ import pickle
 import numpy as np
 import torch as pt
 from pyDOE import lhs
-from typing import Union
+from typing import Union, Tuple
 import matplotlib.pyplot as plt
 
 sys.path.insert(0, "/opt/ParaView-5.9.1-MPI-Linux-Python3.8-64bit/bin")
@@ -29,11 +29,11 @@ def export_cylinder2D_flow_field(load_path: str, save_path: str) -> None:
     """
     # load the snapshots for t < 6...8 s, because N_time_steps need to be dividable by ratio for batch size
     loader = FOAMDataloader(load_path)
-    t = [time for time in loader.write_times if float(time) > 6.0]
+    t = [time for time in loader.write_times if float(time) > 5.0]
 
     # only read in [u, v] of U-field and discard the w-component, since flow is 2D, also ignore major parts of the wake
     # for testing purposes: discard cylinder, since mesh is very fine there
-    mask = mask_box(loader.vertices[:, :2], lower=[0.35, -1], upper=[0.75, 1])
+    mask = mask_box(loader.vertices[:, :2], lower=[0.25, -1], upper=[0.75, 1])
     u_field = pt.zeros((mask.sum().item(), len(t)), dtype=pt.float32)
     v_field = pt.zeros((mask.sum().item(), len(t)), dtype=pt.float32)
     p_field = pt.zeros((mask.sum().item(), len(t)), dtype=pt.float32)
@@ -46,7 +46,7 @@ def export_cylinder2D_flow_field(load_path: str, save_path: str) -> None:
     x = pt.masked_select(loader.vertices[:, 0], mask)
     y = pt.masked_select(loader.vertices[:, 1], mask)
 
-    # flow field need to be in order [N_points, N_time_steps, N_dimensions]
+    # flow field need to be in order [N_points, N_dimensions, N_time_steps]
     uv = pt.zeros((u_field.size()[0], 2, len(t)))
     for i in range(len(t)):
         uv[:, 0, i] = u_field[:, i]
@@ -69,34 +69,59 @@ def export_cylinder2D_flow_field(load_path: str, save_path: str) -> None:
         pickle.dump(data_out, f, protocol=pickle.HIGHEST_PROTOCOL)
 
 
-def read_data(file: str, portion: Union[float, int]):
-    # Read flow field data
+def read_data(file: str, portion: Union[float, int], n_dims: int = 2, u_infty: int = 1, d: float = 0.1, mu: float = 1e-3):
+    """
+    reads in the flow field data from CFD
+
+    :param file: path to the file containing the flow field data and the file name, it is assumed that the data was
+                 created using the "export_cylinder2D_flow_field" function of this script
+    :param portion: ratio of the data for PINN training wrt to total amount of data
+    :param n_dims: number of spacial dimensions of the flow problem
+    :param u_infty: free stream velocity at inlet
+    :param d: diameter of cylinder
+    :param mu: kinematic viscosity
+    :return:
+    """
+    # read flow field data and non-dimensionalize it
     data_mat = pickle.load(open(file, "rb"))
-    U_star = data_mat["U"]
-    X_star = data_mat["xy_coord"]
-    T_star = data_mat["t"]
-    P_star = data_mat["p"]
+    U_star = data_mat["U"] / u_infty
+    X_star = data_mat["xy_coord"] / d
+    T_star = data_mat["t"] / (d * u_infty)
+    P_star = data_mat["p"] * d / (mu * u_infty)
+
+    """ not working...
+    V_star, min_max_v = scale_data(U_star[:, 1, :])
+    U_star, min_max_u = scale_data(U_star[:, 0, :])
+    Y_star, min_max_y = scale_data(X_star[:, 1].unsqueeze(-1))
+    X_star, min_max_x = scale_data(X_star[:, 0].unsqueeze(-1))
+    T_star, min_max_t = scale_data(T_star)
+    P_star, min_max_p = scale_data(P_star)
+    """
+
+    V_star = U_star[:, 1, :]
+    U_star = U_star[:, 0, :]
+    Y_star = X_star[:, 1]
+    X_star = X_star[:, 0]
 
     # Read the number of coordinate points N and the number of time steps T
     N = X_star.shape[0]
     T = T_star.shape[0]
 
-    # TODO: make this more efficient if possible
-    # Turn the data into x,y,t---u,v,p(N*T,1)
-    XX = np.tile(X_star[:, 0:1], (1, T))
-    YY = np.tile(X_star[:, 1:2], (1, T))
+    # Turn the data into UU = (N_x_points * N_time_steps), VV = (N_y_points * N_time_steps), ...
+    XX = np.tile(X_star, (1, T))
+    YY = np.tile(Y_star, (1, T))
     TT = np.tile(T_star, (1, N)).T
-    UU = U_star[:, 0, :]
-    VV = U_star[:, 1, :]
-    PP = P_star
+
     x = XX.flatten()[:, None]
     y = YY.flatten()[:, None]
     t = TT.flatten()[:, None]
-    u = UU.flatten()[:, None]
-    v = VV.flatten()[:, None]
-    p = PP.flatten()[:, None]
+    u = U_star.flatten()[:, None]
+    v = V_star.flatten()[:, None]
+    p = P_star.flatten()[:, None]
     temp = np.concatenate((x, y, t, u, v, p), 1)
-    feature_mat = np.empty((3, 6))
+
+    # shape = N_dimensions * N_parameters (parameters = x, y, t, u, v, p)
+    feature_mat = np.empty((n_dims, 6))
     feature_mat[0, :] = np.max(temp, 0)
     feature_mat[1, :] = np.min(temp, 0)
     x_unique = np.unique(x).reshape(-1, 1)
@@ -135,9 +160,24 @@ def generate_eqp_rect(low_bound, up_bound, dimension, points):
     return eqa_points
 
 
-def prepare_data(x, y, t, u, v, p, loaded_data, n_eq_points: int = 10000, dimensions: int = 3,
+def prepare_data(x: pt.Tensor, y: pt.Tensor, t: pt.Tensor, u: pt.Tensor, v: pt.Tensor, p: pt.Tensor, loaded_data,
+                 n_eq_points: int = 10000, dimensions: int = 3,
                  batch_ratio: float = 0.005):
-    # TODO: throws division by zero error if batch_ratio < 2*10e-2
+    """
+    TODO
+
+    :param x:
+    :param y:
+    :param t:
+    :param u:
+    :param v:
+    :param p:
+    :param loaded_data:
+    :param n_eq_points:
+    :param dimensions: spacial + temporal dimensions
+    :param batch_ratio:
+    :return:
+    """
     x_random = shuffle_data(x, y, t, u, v, p)
     lb = np.array([loaded_data.data.numpy()[1, 0], loaded_data.data.numpy()[1, 1], loaded_data.data.numpy()[1, 2]])
     ub = np.array([loaded_data.data.numpy()[0, 0], loaded_data.data.numpy()[0, 1], loaded_data.data.numpy()[0, 2]])
@@ -150,14 +190,48 @@ def prepare_data(x, y, t, u, v, p, loaded_data, n_eq_points: int = 10000, dimens
 
 
 def shuffle_data(x, y, t, u, v, p):
-    X_total = pt.cat([x, y, t, u, v, p], 1)
-    X_total_arr = X_total.data.numpy()
-    np.random.shuffle(X_total_arr)
-    X_total_random = pt.tensor(X_total_arr)
-    return X_total_random
+    """
+    randomly shuffle the data, so that it is not ordered wrt to time series
+
+    :param x: data of x-dimension
+    :param y: data of x-dimension
+    :param t: data of temporal dimension (all available time steps)
+    :param u: velocity field in x-direction of all time steps
+    :param v: velocity field in y-direction of all time steps
+    :param p: pressure field of all time steps
+    :return: tensor containing the shuffled data
+    """
+    x_total = pt.cat([x, y, t, u, v, p], 1)
+    x_total_arr = x_total.data.numpy()
+    np.random.shuffle(x_total_arr)
+    return pt.tensor(x_total_arr)
+
+
+def scale_data(x: pt.Tensor) -> Tuple[pt.Tensor, list]:
+    """
+    normalize data to the interval [0, 1] using a min-max-normalization
+
+    :param x: data which should be normalized
+    :return: tensor with normalized data and corresponding (global) min- and max-values used for normalization
+    """
+    # x_i_normalized = (x_i - x_min) / (x_max - x_min)
+    x_min_max = [pt.min(x), pt.max(x)]
+    return pt.sub(x, x_min_max[0]) / (x_min_max[1] - x_min_max[0]), x_min_max
+
+
+def rescale_data(x: pt.Tensor, x_min_max: list) -> pt.Tensor:
+    """
+    reverse the normalization of the data
+
+    :param x: normalized data
+    :param x_min_max: min- and max-value used for normalizing the data
+    :return: de-normalized data as tensor
+    """
+    # x = (x_max - x_min) * x_norm + x_min
+    return (x_min_max[1] - x_min_max[0]) * x + x_min_max[0]
 
 
 if __name__ == "__main__":
     # export flow field data of cylinder2D case for PINN training
-    path = r"/home/janis/Hiwi_ISM/py_scripts_exercises/pinn_cylinder2d/"
+    path = r"/home/janis/Hiwi_ISM/py_scripts_exercises/exercise_9_pinn_cylinder2d/"
     export_cylinder2D_flow_field(path + "uncontrolled/", path)
