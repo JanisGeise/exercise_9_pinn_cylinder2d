@@ -21,10 +21,10 @@ if __name__ == "__main__":
         "save_path": r"../TEST/",                   # path for saving all results
         "Re": 100,                                  # Reynolds number
         "U_infty": 1,                               # free stream velocity at inlet
-        "epochs": 250,                               # number of epochs for training
-        "ratio": 0.03,            # ratio for creating sparse data (from total amount of data)
-        "N_points": 1e4,          # N grid points in each dimension for the equations, mainly determines the runtime
-        "t_start": 5.01,          # starting time for flow field prediction (= 1st entry of "t" key of data file)
+        "epochs": 50,                               # number of epochs for training
+        "ratio": 0.04,            # ratio for creating sparse data (from total amount of data)
+        "N_points": 1e6,          # N grid points in each dimension for the equations, mainly determines the runtime
+        "t_start": 7.01,          # starting time for flow field prediction (= 1st entry of "t" key of data file)
         "t_end": 8.0,             # starting time for flow field prediction (= last entry of "t" key of data file)
         }
 
@@ -32,12 +32,12 @@ if __name__ == "__main__":
     manual_seed(0)
 
     # load flow field data
-    x, y, t, u, v, p, loaded_data = read_data(setup["path_data"] + setup["name_data"], setup["ratio"], d=0.1,
-                                              u_infty=setup["U_infty"])
+    x, y, t, u, v, p, min_max_vals = read_data(setup["path_data"] + setup["name_data"], setup["ratio"], d=0.1,
+                                               u_infty=setup["U_infty"])
 
     # use LHS to generate sparse data points from loaded CFD data and free up some space
-    data = prepare_data(x, y, t, u, v, p, loaded_data)
-    del x, y, t, u, v, p, loaded_data
+    data = prepare_data(x, y, t, u, v, p)
+    del x, y, t, u, v, p
 
     # When the number of iters does not match, the program will be automatically exit
     if data["inner_iter"] != data["eq_iter"]:
@@ -59,7 +59,7 @@ if __name__ == "__main__":
     # plot results
     print("\nstart predicting flow field...")
     compare_at_select_time_series(path=setup["save_path"], file_name=setup["name_data"], lower_time=setup["t_start"],
-                                  upper_time=setup["t_end"])
+                                  upper_time=setup["t_end"], min_max=min_max_vals)
 
     # make gifs from flow fields
     print("\ncreating gifs of flow field...")

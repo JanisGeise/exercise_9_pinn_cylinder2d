@@ -18,7 +18,7 @@ class PINN(nn.Module):
     """
     this class implements a PINN
     """
-    def __init__(self, n_inputs: int = 3, n_outputs: int = 2, n_layers: int = 8, n_neurons: int = 25,
+    def __init__(self, n_inputs: int = 3, n_outputs: int = 2, n_layers: int = 15, n_neurons: int = 50,
                  activation: callable = pt.nn.ReLU()):
         super(PINN, self).__init__()
         self.n_inputs = n_inputs
@@ -31,16 +31,17 @@ class PINN(nn.Module):
         # input layer to first hidden layer
         self.base.add_module("0linear", nn.Linear(self.n_inputs, n_neurons))
         self.base.add_module("0Act", self.activation)
-        # self.base.add_module("0LayerNorm", nn.InstanceNorm1d(num_features=self.n_neurons))
+        # self.base.add_module("0BatchNorm1d", nn.BatchNorm1d(self.n_neurons))
 
         # add more hidden layers if specified
         if self.n_layers > 1:
             for i in range(1, self.n_layers - 1):
-                self.base.add_module(str(i) + "linear", nn.Linear(self.n_neurons, self.n_neurons))
                 self.base.add_module(str(i) + "Act", self.activation)
-                # self.base.add_module(str(i) + "LayerNorm", nn.InstanceNorm1d(num_features=self.n_neurons))
+                self.base.add_module(str(i) + "linear", nn.Linear(self.n_neurons, self.n_neurons))
+                # self.base.add_module(str(i) + "BatchNorm1d", nn.BatchNorm1d(self.n_neurons))
 
         # last hidden layer to output
+        # self.base.add_module(str(self.n_layers) + "BatchNorm1d", nn.BatchNorm1d(self.n_neurons))
         self.base.add_module(str(self.n_layers) + "linear", nn.Linear(self.n_neurons, self.n_outputs))
         self.lam1 = nn.Parameter(pt.randn(1, requires_grad=True))
         self.lam2 = nn.Parameter(pt.randn(1, requires_grad=True))
@@ -54,9 +55,9 @@ class PINN(nn.Module):
     def initial_param(self):
         # initialize the weights and biases of each layer
         for name, param in self.base.named_parameters():
-            if name.endswith("weight") and not name.startswith("LayerNorm", 1):
+            if name.endswith("weight") and not name.startswith("BatchNorm1d", 1):
                 nn.init.xavier_normal_(param)
-            elif name.endswith("bias") and not name.startswith("LayerNorm", 1):
+            elif name.endswith("bias") and not name.startswith("BatchNorm1d", 1):
                 nn.init.zeros_(param)
 
     def data_mse(self, x, y, t, u, v, p):
@@ -146,7 +147,7 @@ def train_pinns(inner_iter: int, x_random: pt.Tensor, batch_size_data: int, batc
     best_loss = 1.0e5
     pinn_net = PINN()
     losses = np.empty((0, 3), dtype=float)
-    optimizer = pt.optim.AdamW(pinn_net.parameters(), lr=0.01, weight_decay=10e-3)
+    optimizer = pt.optim.AdamW(pinn_net.parameters(), lr=5e-4, weight_decay=10e-3)
 
     # start timer
     start = time()

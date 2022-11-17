@@ -29,11 +29,11 @@ def export_cylinder2D_flow_field(load_path: str, save_path: str) -> None:
     """
     # load the snapshots for t < 6...8 s, because N_time_steps need to be dividable by ratio for batch size
     loader = FOAMDataloader(load_path)
-    t = [time for time in loader.write_times if float(time) > 5.0]
+    t = [time for time in loader.write_times if float(time) > 7.0]
 
     # only read in [u, v] of U-field and discard the w-component, since flow is 2D, also ignore major parts of the wake
     # for testing purposes: discard cylinder, since mesh is very fine there
-    mask = mask_box(loader.vertices[:, :2], lower=[0.25, -1], upper=[0.75, 1])
+    mask = mask_box(loader.vertices[:, :2], lower=[0.35, -1], upper=[1.0, 1])
     u_field = pt.zeros((mask.sum().item(), len(t)), dtype=pt.float32)
     v_field = pt.zeros((mask.sum().item(), len(t)), dtype=pt.float32)
     p_field = pt.zeros((mask.sum().item(), len(t)), dtype=pt.float32)
@@ -69,7 +69,8 @@ def export_cylinder2D_flow_field(load_path: str, save_path: str) -> None:
         pickle.dump(data_out, f, protocol=pickle.HIGHEST_PROTOCOL)
 
 
-def read_data(file: str, portion: Union[float, int], n_dims: int = 2, u_infty: int = 1, d: float = 0.1, mu: float = 1e-3):
+def read_data(file: str, portion: Union[float, int], n_dims: int = 2, u_infty: int = 1, d: float = 0.1,
+              mu: float = 1e-3, scale: bool=True):
     """
     reads in the flow field data from CFD
 
@@ -80,6 +81,7 @@ def read_data(file: str, portion: Union[float, int], n_dims: int = 2, u_infty: i
     :param u_infty: free stream velocity at inlet
     :param d: diameter of cylinder
     :param mu: kinematic viscosity
+    :param scale: flag if loaded data should be scaled to [0, 1]
     :return:
     """
     # read flow field data and non-dimensionalize it
@@ -89,19 +91,29 @@ def read_data(file: str, portion: Union[float, int], n_dims: int = 2, u_infty: i
     T_star = data_mat["t"] / (d * u_infty)
     P_star = data_mat["p"] * d / (mu * u_infty)
 
-    """ not working...
-    V_star, min_max_v = scale_data(U_star[:, 1, :])
-    U_star, min_max_u = scale_data(U_star[:, 0, :])
-    Y_star, min_max_y = scale_data(X_star[:, 1].unsqueeze(-1))
-    X_star, min_max_x = scale_data(X_star[:, 0].unsqueeze(-1))
-    T_star, min_max_t = scale_data(T_star)
-    P_star, min_max_p = scale_data(P_star)
-    """
+    # scale all available CFD data to interval [0, 1]
+    if scale:
+        V_star, min_max_v = scale_data(U_star[:, 1, :])
+        U_star, min_max_u = scale_data(U_star[:, 0, :])
+        Y_star, min_max_y = scale_data(X_star[:, 1].unsqueeze(-1))
+        X_star, min_max_x = scale_data(X_star[:, 0].unsqueeze(-1))
+        T_star, min_max_t = scale_data(T_star)
+        P_star, min_max_p = scale_data(P_star)
 
-    V_star = U_star[:, 1, :]
-    U_star = U_star[:, 0, :]
-    Y_star = X_star[:, 1]
-    X_star = X_star[:, 0]
+        # feature matrix contains min- / max-values as well, but for all loaded data points
+        min_max_vals = {"u": min_max_u, "v": min_max_v, "x": min_max_x, "y": min_max_y, "p": min_max_p, "t": min_max_t}
+
+        # sanity check -> if not enough data points, then min == max and scaling returns 'nan'
+        for key in min_max_vals:
+            if abs(min_max_vals[key][0] - min_max_vals[key][1]).item() <= 10e-6:
+                print("not enough values for normalization, increase 'ratio'!")
+                exit()
+    else:
+        V_star = U_star[:, 1, :]
+        U_star = U_star[:, 0, :]
+        Y_star = X_star[:, 1]
+        X_star = X_star[:, 0]
+        min_max_vals = {}
 
     # Read the number of coordinate points N and the number of time steps T
     N = X_star.shape[0]
@@ -118,12 +130,8 @@ def read_data(file: str, portion: Union[float, int], n_dims: int = 2, u_infty: i
     u = U_star.flatten()[:, None]
     v = V_star.flatten()[:, None]
     p = P_star.flatten()[:, None]
-    temp = np.concatenate((x, y, t, u, v, p), 1)
 
     # shape = N_dimensions * N_parameters (parameters = x, y, t, u, v, p)
-    feature_mat = np.empty((n_dims, 6))
-    feature_mat[0, :] = np.max(temp, 0)
-    feature_mat[1, :] = np.min(temp, 0)
     x_unique = np.unique(x).reshape(-1, 1)
     y_unique = np.unique(y).reshape(-1, 1)
     index_arr_x = np.linspace(0, len(x_unique) - 1, int(len(x_unique) * portion)).astype(int).reshape(-1, 1)
@@ -131,6 +139,7 @@ def read_data(file: str, portion: Union[float, int], n_dims: int = 2, u_infty: i
     x_select = x_unique[index_arr_x].reshape(-1, 1)
     y_select = y_unique[index_arr_y].reshape(-1, 1)
 
+    # reconstruct the flow fields for the given (N*1D) data to 2D-mesh for each parameter
     index_x = np.empty((0, 1), dtype=int)
     index_y = np.empty((0, 1), dtype=int)
     for select_1 in x_select:
@@ -147,11 +156,21 @@ def read_data(file: str, portion: Union[float, int], n_dims: int = 2, u_infty: i
     x = pt.tensor(x, dtype=pt.float32)
     y = pt.tensor(y, dtype=pt.float32)
     t = pt.tensor(t, dtype=pt.float32)
-    feature_mat = pt.tensor(feature_mat, dtype=pt.float32)
-    return x, y, t, u, v, p, feature_mat
+
+    return x, y, t, u, v, p, min_max_vals
 
 
-def generate_eqp_rect(low_bound, up_bound, dimension, points):
+def generate_eqp_rect(low_bound: Union[pt.Tensor, np.ndarray], up_bound: Union[pt.Tensor, np.ndarray], dimension: int,
+                      points: int) -> pt.Tensor:
+    """
+    creates mesh for given number of points and dimensions for solving the NS-equations
+
+    :param low_bound: min. value for each dimension (including temporal dimension)
+    :param up_bound: max. value for each dimension (including temporal dimension)
+    :param dimension: number of spacial and temporal dimensions
+    :param points: number of grid points for solving the NS-equations
+    :return: mesh with grid points for solving the NS-equations
+    """
     # Generate rectangular domain equation points
     eqa_xyzt = low_bound + (up_bound - low_bound) * lhs(dimension, points)
     per = np.random.permutation(eqa_xyzt.shape[0])
@@ -160,33 +179,35 @@ def generate_eqp_rect(low_bound, up_bound, dimension, points):
     return eqa_points
 
 
-def prepare_data(x: pt.Tensor, y: pt.Tensor, t: pt.Tensor, u: pt.Tensor, v: pt.Tensor, p: pt.Tensor, loaded_data,
-                 n_eq_points: int = 10000, dimensions: int = 3,
-                 batch_ratio: float = 0.005):
+def prepare_data(x: pt.Tensor, y: pt.Tensor, t: pt.Tensor, u: pt.Tensor, v: pt.Tensor, p: pt.Tensor,
+                 n_eq_points: int = 10000, dimensions: int = 3, batch_ratio: float = 0.005) -> dict:
     """
     TODO
 
-    :param x:
-    :param y:
-    :param t:
-    :param u:
-    :param v:
-    :param p:
-    :param loaded_data:
-    :param n_eq_points:
+    :param x: x-coordinates
+    :param y: y-coordinates
+    :param t: all available time steps
+    :param u: data of velocity field for u (for all available time steps)
+    :param v: data of velocity field for v (for all available time steps)
+    :param p: data of pressure field (for all available time steps)
+    :param loaded_data: TODO
+    :param n_eq_points: N grid points for solving NS-equations
     :param dimensions: spacial + temporal dimensions
-    :param batch_ratio:
-    :return:
+    :param batch_ratio: TODO
+    :return: TODO
     """
     x_random = shuffle_data(x, y, t, u, v, p)
-    lb = np.array([loaded_data.data.numpy()[1, 0], loaded_data.data.numpy()[1, 1], loaded_data.data.numpy()[1, 2]])
-    ub = np.array([loaded_data.data.numpy()[0, 0], loaded_data.data.numpy()[0, 1], loaded_data.data.numpy()[0, 2]])
-    points_eq = generate_eqp_rect(lb, ub, dimensions, n_eq_points)
+
+    # since data is normalized to [0, 1], the bounds for each parameter within parameter space is [0, 1]
+    points_eq = generate_eqp_rect(np.zeros(3), np.ones(3), dimensions, n_eq_points)
     batch_size_data = int(batch_ratio * x_random.shape[0])
 
+    if batch_size_data == 0:
+        print("not enough data points, increase the 'ratio' parameter!")
+        exit()
     return {"points_eq": points_eq, "batch_size_data": batch_size_data, "x_random": x_random,
-            "eq_iter": int(points_eq.size(0) / int(batch_ratio * points_eq.shape[0])),
-            "batch_size_eq": int(batch_ratio * points_eq.shape[0]), "inner_iter": int(x_random.size(0) / batch_size_data)}
+            "eq_iter": int(points_eq.size()[0] / int(batch_ratio * points_eq.shape[0])),
+            "batch_size_eq": int(batch_ratio*points_eq.shape[0]), "inner_iter": int(x_random.size()[0]/batch_size_data)}
 
 
 def shuffle_data(x, y, t, u, v, p):

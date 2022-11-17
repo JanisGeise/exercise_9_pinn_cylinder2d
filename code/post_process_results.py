@@ -13,7 +13,7 @@ from pandas import read_csv
 from typing import Union, Tuple
 import matplotlib.pyplot as plt
 
-from dataloader import read_data
+from dataloader import read_data, rescale_data
 from train_models import PINN
 from train_models import f_equation_inverse
 
@@ -46,7 +46,7 @@ def plot_loss(path: str, name_loss_file: str = "loss") -> None:
     plt.close("all")
 
 
-def compare_at_select_time_series(path: str, file_name: str, lower_time: Union[float, int] = 4.0,
+def compare_at_select_time_series(path: str, file_name: str, min_max: dict, lower_time: Union[float, int] = 4.0,
                                   upper_time: Union[float, int] = 8.0, d: float = 0.1, mu: float = 1e-3,
                                   u_infty: Union[int, float] = 1, model_name: str = "model_train") -> None:
     """
@@ -54,6 +54,7 @@ def compare_at_select_time_series(path: str, file_name: str, lower_time: Union[f
 
     :param path: save path for plots
     :param file_name: name of the file containing the real flow field data
+    :param min_max: min- / max-values for scaling the loaded data
     :param lower_time: starting time for prediction
     :param upper_time: end time for prediction
     :param model_name: name of the trained model
@@ -62,21 +63,18 @@ def compare_at_select_time_series(path: str, file_name: str, lower_time: Union[f
     :param u_infty: free stream velocity at inlet
     :return: None
     """
-    # read in the data and model, TODO: everything here is still quite inefficient...
+    # read in the data
+    if min_max is None:
+        min_max = {}
     xy_cfd = pickle.load(open(file_name, "rb"))["xy_coord"]
     uv_cfd = pickle.load(open(file_name, "rb"))["U"]
     p_cfd = pickle.load(open(file_name, "rb"))["p"]
+    x, y, t, u, v, p, _ = read_data(file_name, 1, scale=False)
 
-    x, y, t, u, v, p, _ = read_data(file_name, 1)
-    data_stack = np.concatenate((x, y, t, u, v, p), axis=1)
+    # read in the best model
     pinn_net = PINN()
     pinn_net.load_state_dict(pt.load("".join([path, model_name, ".pt"]), map_location="cpu"))
     pinn_net.eval()
-
-    # min-max scaling for plots
-    min_data = np.min(data_stack, 0).reshape(1, data_stack.shape[1])
-    max_data = np.max(data_stack, 0).reshape(1, data_stack.shape[1])
-    del data_stack, u, v, p
 
     # Keep the coordinates that are not repeated in the data set
     x = np.unique(x).reshape(-1, 1)
@@ -100,25 +98,32 @@ def compare_at_select_time_series(path: str, file_name: str, lower_time: Union[f
 
         # predict the flow field of the current time step
         u_predict, v_predict, p_predict = f_equation_inverse(x_selected, y_selected, t_selected, pinn_net.eval())
+
+        # reshape & re-scale the flow fields
+        u_predict = rescale_data(u_predict, min_max["u"])
+        v_predict = rescale_data(v_predict, min_max["v"])
+        p_predict = rescale_data(p_predict, min_max["p"])
         u_predict = u_predict.data.numpy().reshape(mesh_x.shape)
         v_predict = v_predict.data.numpy().reshape(mesh_x.shape)
         p_predict = p_predict.data.numpy().reshape(mesh_x.shape)
 
         # plot the velocity- and pressure field for each given time step
         plot_comparison_flow_field(path, [xy_cfd[:, 0], xy_cfd[:, 1], uv_cfd[:, 0, idx]*u_infty], u_predict*u_infty,
-                                   select_time, name="u", min_value=min_data[0, 3], max_value=max_data[0, 3])
+                                   select_time, name="u", min_value=min_max["u"][0], max_value=min_max["u"][1])
         plot_comparison_flow_field(path, [xy_cfd[:, 0], xy_cfd[:, 1], uv_cfd[:, 1, idx]*u_infty], v_predict*u_infty,
-                                   select_time, name="v", min_value=min_data[0, 4], max_value=max_data[0, 4])
+                                   select_time, name="v", min_value=min_max["v"][0], max_value=min_max["v"][1])
         plot_comparison_flow_field(path, [xy_cfd[:, 0], xy_cfd[:, 1], p_cfd[:, idx] * (mu * u_infty) / d],
-                                   p_predict * (mu * u_infty) / d, select_time, name="p", min_value=min_data[0, 5],
-                                   max_value=max_data[0, 5])
+                                   p_predict * (mu * u_infty) / d, select_time, name="p", min_value=min_max["p"][0],
+                                   max_value=min_max["p"][1])
 
         # free up some memory
         del u_predict, v_predict, p_predict, x_selected, y_selected, t_selected, x_flatten, t_flatten
+        exit()
 
 
 def plot_comparison_flow_field(path: str, q_selected, q_predict, select_time, min_value, max_value, name="u") -> None:
     """
+    plot the real flow field from CFD in comparison to the predicted one
 
     :param path: save path for plots
     :param q_selected: CFD field data
@@ -134,14 +139,19 @@ def plot_comparison_flow_field(path: str, q_selected, q_predict, select_time, mi
     for i in range(2):
         if i == 0:
             ax[i].set_title(f"$Real$ $flow$ $field$ $at$ $t = " + "{:.2f}s$".format(select_time), usetex=True)
-            # TODO: norm doesn't have any effect, bounds of color bar changing every time step...
-            real = ax[i].tricontourf(q_selected[0], q_selected[1], q_selected[2], levels=200, cmap="jet", norm=v_norm)
-            cb = fig.colorbar(real, ax=ax[i], format="{x:.2f}", norm=v_norm)
+            if name == "p":
+                real = ax[i].tricontourf(q_selected[0], q_selected[1], q_selected[2], levels=200, cmap="jet")
+            else:
+                real = ax[i].tricontourf(q_selected[0], q_selected[1], q_selected[2], levels=200, cmap="jet",
+                                         norm=v_norm)
+            cb = fig.colorbar(real, ax=ax[i], format="{x:.2f}")
         else:
             ax[i].set_title(f"$Predicted$ $flow$ $field$ $at$ $t = " + "{:.2f}s$".format(select_time), usetex=True)
-            # TODO: norm doesn't have any effect, bounds of color bar changing every time step...
-            pred = ax[i].contourf(q_predict, levels=200, cmap="jet", norm=v_norm)
-            cb = fig.colorbar(pred, ax=ax[i], format="{x:.2f}", norm=v_norm)
+            if name == "p":
+                pred = ax[i].contourf(q_predict, levels=200, cmap="jet")
+            else:
+                pred = ax[i].contourf(q_predict, levels=200, cmap="jet", norm=v_norm)
+            cb = fig.colorbar(pred, ax=ax[i], format="{x:.2f}")
             # TODO: this gives a warning from plt
             ax[i].set_yticklabels(["{:.2f}".format(t) for t in ax[0].get_yticks()])
             ax[i].set_xticklabels(["{:.2f}".format(t) for t in ax[0].get_xticks()])
