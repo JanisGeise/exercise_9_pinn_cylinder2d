@@ -9,7 +9,7 @@ from os.path import exists
 from torch import manual_seed
 
 from train_models import train_pinns
-from post_process_results import plot_loss, compare_at_select_time_series, make_flow_gif
+from post_process_results import plot_loss, compare_flow_fields, make_flow_gif
 from dataloader import read_data, prepare_data
 
 
@@ -21,11 +21,9 @@ if __name__ == "__main__":
         "save_path": r"../TEST/",                   # path for saving all results
         "Re": 100,                                  # Reynolds number
         "U_infty": 1,                               # free stream velocity at inlet
-        "epochs": 50,                               # number of epochs for training
+        "epochs": 100,                               # number of epochs for training
         "ratio": 0.04,            # ratio for creating sparse data (from total amount of data)
         "N_points": 1e6,          # N grid points in each dimension for the equations, mainly determines the runtime
-        "t_start": 7.01,          # starting time for flow field prediction (= 1st entry of "t" key of data file)
-        "t_end": 8.0,             # starting time for flow field prediction (= last entry of "t" key of data file)
         }
 
     # ensure reproducibility
@@ -58,12 +56,11 @@ if __name__ == "__main__":
 
     # plot results
     print("\nstart predicting flow field...")
-    compare_at_select_time_series(path=setup["save_path"], file_name=setup["name_data"], lower_time=setup["t_start"],
-                                  upper_time=setup["t_end"], min_max=min_max_vals)
+    compare_flow_fields(path=setup["save_path"], file_name=setup["name_data"], min_max=min_max_vals)
 
     # make gifs from flow fields
     print("\ncreating gifs of flow field...")
-    make_flow_gif(setup["save_path"], setup["t_start"], setup["t_end"], interval=0.01, name="u", fps_num=10)
-    make_flow_gif(setup["save_path"], setup["t_start"], setup["t_end"], interval=0.01, name="v", fps_num=10)
-    make_flow_gif(setup["save_path"], setup["t_start"], setup["t_end"], interval=0.01, name="p", fps_num=10)
+    make_flow_gif(setup["save_path"], name="u", fps_num=10)
+    make_flow_gif(setup["save_path"], name="v", fps_num=10)
+    make_flow_gif(setup["save_path"], name="p", fps_num=10)
     print("Done.")

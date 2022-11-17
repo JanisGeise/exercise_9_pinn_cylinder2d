@@ -33,7 +33,7 @@ def export_cylinder2D_flow_field(load_path: str, save_path: str) -> None:
 
     # only read in [u, v] of U-field and discard the w-component, since flow is 2D, also ignore major parts of the wake
     # for testing purposes: discard cylinder, since mesh is very fine there
-    mask = mask_box(loader.vertices[:, :2], lower=[0.35, -1], upper=[1.0, 1])
+    mask = mask_box(loader.vertices[:, :2], lower=[0.5, -1], upper=[1.5, 1])
     u_field = pt.zeros((mask.sum().item(), len(t)), dtype=pt.float32)
     v_field = pt.zeros((mask.sum().item(), len(t)), dtype=pt.float32)
     p_field = pt.zeros((mask.sum().item(), len(t)), dtype=pt.float32)
@@ -69,15 +69,14 @@ def export_cylinder2D_flow_field(load_path: str, save_path: str) -> None:
         pickle.dump(data_out, f, protocol=pickle.HIGHEST_PROTOCOL)
 
 
-def read_data(file: str, portion: Union[float, int], n_dims: int = 2, u_infty: int = 1, d: float = 0.1,
-              mu: float = 1e-3, scale: bool=True):
+def read_data(file: str, portion: Union[float, int], u_infty: int = 1, d: float = 0.1, mu: float = 1e-3,
+              scale: bool=True):
     """
     reads in the flow field data from CFD
 
     :param file: path to the file containing the flow field data and the file name, it is assumed that the data was
                  created using the "export_cylinder2D_flow_field" function of this script
     :param portion: ratio of the data for PINN training wrt to total amount of data
-    :param n_dims: number of spacial dimensions of the flow problem
     :param u_infty: free stream velocity at inlet
     :param d: diameter of cylinder
     :param mu: kinematic viscosity
@@ -88,7 +87,11 @@ def read_data(file: str, portion: Union[float, int], n_dims: int = 2, u_infty: i
     data_mat = pickle.load(open(file, "rb"))
     U_star = data_mat["U"] / u_infty
     X_star = data_mat["xy_coord"] / d
-    T_star = data_mat["t"] / (d * u_infty)
+
+    # [1] = [s] * [m/s] * [1/m] = t * u_infty * 1/d = t_star
+    T_star = data_mat["t"] * u_infty * (1/d)
+
+    # [1] = ([Pa] * [m]) / ([Pa * s] *[m / s]) = p_star
     P_star = data_mat["p"] * d / (mu * u_infty)
 
     # scale all available CFD data to interval [0, 1]
@@ -190,7 +193,6 @@ def prepare_data(x: pt.Tensor, y: pt.Tensor, t: pt.Tensor, u: pt.Tensor, v: pt.T
     :param u: data of velocity field for u (for all available time steps)
     :param v: data of velocity field for v (for all available time steps)
     :param p: data of pressure field (for all available time steps)
-    :param loaded_data: TODO
     :param n_eq_points: N grid points for solving NS-equations
     :param dimensions: spacial + temporal dimensions
     :param batch_ratio: TODO

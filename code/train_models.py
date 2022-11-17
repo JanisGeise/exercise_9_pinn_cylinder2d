@@ -131,8 +131,8 @@ def f_equation_inverse(x, y, t, model):
     del predict_out
 
     # Calculate each partial derivative by automatic differentiation, where.sum() converts a vector into a scalar
-    u = pt.autograd.grad(psi.sum(), y, create_graph=True)[0].detach()
-    v = -pt.autograd.grad(psi.sum(), x, create_graph=True)[0].detach()
+    u = (pt.autograd.grad(psi.sum(), y, create_graph=True)[0]).detach()
+    v = (-pt.autograd.grad(psi.sum(), x, create_graph=True)[0]).detach()
 
     return u, v, p
 
