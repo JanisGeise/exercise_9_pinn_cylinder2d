@@ -97,9 +97,9 @@ def compare_flow_fields(path: str, file_name: str, min_max: dict, d: float = 0.1
         u_predict, v_predict, p_predict = f_equation_inverse(x_selected, y_selected, t_selected, pinn_net.eval())
 
         # reshape & re-scale the flow- and pressure fields
-        u_predict = (rescale_data(u_predict, min_max["u"])).flatten()
-        v_predict = (rescale_data(v_predict, min_max["v"])).flatten()
-        p_predict = (rescale_data(p_predict, min_max["p"])).flatten()
+        u_predict = (rescale_data(u_predict.detach(), min_max["u"])).flatten()
+        v_predict = (rescale_data(v_predict.detach(), min_max["v"])).flatten()
+        p_predict = (rescale_data(p_predict.detach(), min_max["p"])).flatten()
         x_selected = (rescale_data(x_selected.detach(), min_max["x"])).flatten()
         y_selected = (rescale_data(y_selected.detach(), min_max["y"])).flatten()
 
@@ -183,7 +183,7 @@ def plot_comparison_flow_field(path: str, q_selected, q_predict, select_time, mi
     plt.close("all")
 
 
-def make_flow_gif(path, name="u", fps_num=5, save_name: str = "flow_field_u") -> None:
+def make_flow_gif(path, name="u", fps_num=5, save_name: str = "flow_field_") -> None:
     """
     create gif from of flow field plots for all predicted time steps
 
@@ -194,7 +194,7 @@ def make_flow_gif(path, name="u", fps_num=5, save_name: str = "flow_field_u") ->
     :return: None
     """
     img = [imageio.v2.imread(img) for img in natsorted(glob("".join([path, "/plots/", "time*", name, ".png"])))]
-    imageio.mimsave("".join([path, "/plots/1_data_", name, save_name, ".gif"]), img, fps=fps_num)
+    imageio.mimsave("".join([path, "/plots/", save_name, name, ".gif"]), img, fps=fps_num)
 
 
 if __name__ == "__main__":

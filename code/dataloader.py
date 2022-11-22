@@ -33,7 +33,7 @@ def export_cylinder2D_flow_field(load_path: str, save_path: str) -> None:
 
     # only read in [u, v] of U-field and discard the w-component, since flow is 2D, also ignore major parts of the wake
     # for testing purposes: discard cylinder, since mesh is very fine there
-    mask = mask_box(loader.vertices[:, :2], lower=[0.5, -1], upper=[1.5, 1])
+    mask = mask_box(loader.vertices[:, :2], lower=[0.5, -1], upper=[0.91, 1])
     u_field = pt.zeros((mask.sum().item(), len(t)), dtype=pt.float32)
     v_field = pt.zeros((mask.sum().item(), len(t)), dtype=pt.float32)
     p_field = pt.zeros((mask.sum().item(), len(t)), dtype=pt.float32)
@@ -70,7 +70,7 @@ def export_cylinder2D_flow_field(load_path: str, save_path: str) -> None:
 
 
 def read_data(file: str, portion: Union[float, int], u_infty: int = 1, d: float = 0.1, mu: float = 1e-3,
-              scale: bool=True):
+              scale: bool = True):
     """
     reads in the flow field data from CFD
 

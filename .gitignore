@@ -1,4 +1,5 @@
 .idea/
 uncontrolled/
-test_training_cylinder2D_1st_try/
-test_training_original_case_repo/
+test_training*/
+/pinn_cylinder_2d_cluster/
+TEST/

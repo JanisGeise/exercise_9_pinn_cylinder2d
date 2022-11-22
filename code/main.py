@@ -7,6 +7,7 @@
 from os import mkdir
 from os.path import exists
 from torch import manual_seed
+from numpy import random
 
 from train_models import train_pinns
 from post_process_results import plot_loss, compare_flow_fields, make_flow_gif
@@ -18,16 +19,17 @@ if __name__ == "__main__":
     setup = {
         "path_data": r"./",                                         # path to file containing the flow field data
         "name_data": r"../cylinder2D_quasi_steady_flow_field.pkl",  # name of the file containing the flow field data
-        "save_path": r"../TEST/",                   # path for saving all results
+        "save_path": r"../test_training_cylinder2D_1000_points_2nd/",         # path for saving all results
         "Re": 100,                                  # Reynolds number
         "U_infty": 1,                               # free stream velocity at inlet
-        "epochs": 100,                               # number of epochs for training
-        "ratio": 0.04,            # ratio for creating sparse data (from total amount of data)
-        "N_points": 1e6,          # N grid points in each dimension for the equations, mainly determines the runtime
+        "epochs": 1000,                               # number of epochs for training
+        "ratio": 1.0,            # ratio for creating sparse data (from total amount of data)
+        "N_points": 1e3,          # N grid points in each dimension for the equations, mainly determines the runtime
         }
 
     # ensure reproducibility
     manual_seed(0)
+    random.seed(0)
 
     # load flow field data
     x, y, t, u, v, p, min_max_vals = read_data(setup["path_data"] + setup["name_data"], setup["ratio"], d=0.1,
