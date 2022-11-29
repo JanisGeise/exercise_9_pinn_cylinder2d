@@ -3,6 +3,7 @@
 """
 import os
 import pickle
+import numpy as np
 from os.path import exists
 
 import torch as pt
@@ -54,29 +55,63 @@ class FCModel(pt.nn.Module):
             x = self.activation(self.layers[i_layer](x))
         return self.layers[-1](x)
 
-    def data_mse_without_p(self, feature, x, y, u, v):
+    def data_mse_without_p(self, feature, len_x, len_y, u, v):
         # calculate MSE loss of velocity fields
         predict_out = self.forward(feature)
-        psi = predict_out[:, :x.size()[0]]
-        x.requires_grad, y.requires_grad = True, True
+        psi = predict_out[:, :len_x]
 
-        # u_predict = pt.gradient(psi.squeeze().detach(), spacing=(y.squeeze(), ))
-        # u_predict = pt.zeros(x.size()).unsqueeze(-1)
-        u_predict = pt.autograd.grad(psi, y, create_graph=True)[0]
-        v_predict = -pt.autograd.grad(psi, x, create_graph=True)[0]
+        # derivatives: u = d(Psi) / dy, v = - d(Psi) / dx
+        d_psi = np.gradient(psi.squeeze().detach().numpy())
+        dy = np.gradient(feature[:, len_x:len_x + len_y].squeeze().detach().numpy())
+        dx = np.gradient(feature[:, :len_x].squeeze().detach().numpy())
+        u_pred = d_psi / dy
+        v_pred = - d_psi / dx
+
+        # u_predict = pt.autograd.grad(psi.sum(), feature[:, len_x:len_x + len_y], create_graph=True)[0]
+        # v_predict = -pt.autograd.grad(psi, feature[:, :len_x], create_graph=True)[0]
         mse = pt.nn.MSELoss()
-        mse_predict = mse(u_predict, u) + mse(v_predict, v)
+        # mse_predict = mse(u_predict, u) + mse(v_predict, v)
+        mse_predict = mse(pt.tensor(u_pred), u.squeeze()) + mse(pt.tensor(v_pred), v.squeeze())
         return mse_predict
 
-    def equation_mse(self, feature, t, Re: int = 100):
-        x, y = feature[:, 0], feature[:, 1]
-        x.requires_grad, y.requires_grad = True, True
-        # calculate MSE loss of the NS-equations
-        # predict Psi and p for a given x, y and t
-        predict_out = self.forward(feature)
-        psi = predict_out[:, 0].reshape(-1, 1)
-        p = predict_out[:, 1].reshape(-1, 1)
+    def equation_mse(self, feature, len_x, len_y, t_in, Re: int = 100):
+        # create time tensor for gradients
+        t = (pt.ones(size=(t_in.size()[0], len_x)) * t_in).squeeze().detach().numpy()
 
+        x, y = feature[:, :len_x].squeeze().detach().numpy(), feature[:, len_x:len_x + len_y].squeeze().detach().numpy()
+        # x.requires_grad, y.requires_grad = True, True
+
+        # calculate MSE loss of the NS-equations, predict Psi and p for a given x, y and t
+        predict_out = self.forward(feature)
+        psi = predict_out[:, :len_x].squeeze().detach().numpy()
+        p = predict_out[:, len_x:].squeeze().detach().numpy()
+
+        d_psi = np.gradient(psi)
+        dy = np.gradient(y)
+        dx = np.gradient(x)
+        # dt = np.gradient(t)
+        u = d_psi / dy
+        v = - d_psi / dx
+
+        # 1st derivatives
+        du = np.gradient(u)
+        dv = np.gradient(v)
+        # u_t = du / dt
+        # v_t = dv / dt
+        u_x = du / dx
+        u_y = du / dy
+        v_x = dv / dx
+        v_y = dv / dy
+        p_x = np.gradient(p) / dx
+        p_y = np.gradient(p) / dy
+
+        # 2nd derivatives
+        u_xx = np.gradient(du) / np.gradient(dx)
+        u_yy = np.gradient(du) / np.gradient(dy)
+        v_xx = np.gradient(dv) / np.gradient(dx)
+        v_yy = np.gradient(dv) / np.gradient(dy)
+
+        """
         # Calculate each partial derivative by automatic differentiation
         u = pt.autograd.grad(psi.sum(), y, create_graph=True)[0]
         v = -pt.autograd.grad(psi.sum(), x, create_graph=True)[0]
@@ -92,13 +127,16 @@ class FCModel(pt.nn.Module):
         u_yy = pt.autograd.grad(u_y.sum(), y, create_graph=True)[0]
         v_xx = pt.autograd.grad(v_x.sum(), x, create_graph=True)[0]
         v_yy = pt.autograd.grad(v_y.sum(), y, create_graph=True)[0]
-
-        # non-dimensionalized NS-equations
-        f = u_t + (u * u_x + v * u_y) + p_x - 1.0/Re * (u_xx + u_yy)
-        g = v_t + (u * v_x + v * v_y) + p_y - 1.0/Re * (v_xx + v_yy)
+        """
+        # non-dimensionalized steady NS-equations (since only 1 time step is predicted)
+        # f = u_t + (u * u_x + v * u_y) + p_x - 1.0/Re * (u_xx + u_yy)
+        f = (u * u_x + v * u_y) + p_x - 1.0/Re * (u_xx + u_yy)
+        # g = v_t + (u * v_x + v * v_y) + p_y - 1.0/Re * (v_xx + v_yy)
+        g = (u * v_x + v * v_y) + p_y - 1.0/Re * (v_xx + v_yy)
         mse = pt.nn.MSELoss()
-        batch_t_zeros = (pt.zeros((x.shape[0], 1))).float().requires_grad_(True)
-        mse_equation = mse(f, batch_t_zeros) + mse(g, batch_t_zeros)
+        batch_t_zeros = (pt.zeros((x.shape[0], ))).float()
+        # equations = 0 -> MSE = difference to zero
+        mse_equation = mse(pt.tensor(f), batch_t_zeros) + mse(pt.tensor(g), batch_t_zeros)
         return mse_equation
 
 
@@ -143,18 +181,20 @@ def train_model(model: pt.nn.Module, features_train: pt.Tensor, labels_train: pt
 
         # training loop
         model.train()
-        for batch in dataloader_train:
+        for feature, label in dataloader_train:
             optimizer.zero_grad()
-            feature, label = batch
 
             # make prediction
-            mse_predict = model.data_mse_without_p(feature, x, y, label[:, :, 0], label[:, :, 0])
-            mse_equation = model.equation_mse(feature, feature[:, -1], re_no)
-            loss = mse_predict + mse_equation
+            mse_predict = model.data_mse_without_p(feature=feature.requires_grad_(True), len_x=x.size()[0],
+                                                   len_y=y.size()[0], u=label[:, :, 0], v=label[:, :, 1])
+            mse_equation = model.equation_mse(feature, t_in=feature[:, -1], len_x=x.size()[0], len_y=y.size()[0],
+                                              Re=re_no)
+            loss = (mse_predict + mse_equation).requires_grad_(True)
             loss.backward()
+            print(loss.item())
             optimizer.step()
-            t_loss_tmp.append(loss.item())
-        training_loss.append(pt.mean(pt.tensor(t_loss_tmp)))
+            # t_loss_tmp.append(loss.item())
+        # training_loss.append(pt.mean(pt.tensor(t_loss_tmp)))
         exit()
         # validation loop
         with pt.no_grad():
@@ -231,8 +271,8 @@ def read_data(file: str, u_infty: int = 1, d: float = 0.1, mu: float = 1e-3, sca
     else:
         V_star = U_star[:, 1, :]
         U_star = U_star[:, 0, :]
-        Y_star = X_star[:, 1]
-        X_star = X_star[:, 0]
+        Y_star = X_star[:, 1].unsqueeze(-1)
+        X_star = X_star[:, 0].unsqueeze(-1)
         min_max_vals = {}
 
     return {"x": X_star, "y": Y_star, "t": T_star, "u": U_star, "v": V_star, "p": P_star}, min_max_vals
