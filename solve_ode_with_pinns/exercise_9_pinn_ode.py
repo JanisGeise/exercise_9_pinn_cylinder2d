@@ -1,6 +1,9 @@
 """
-    solve simple ODE's using PINN's
-    TODO
+    solve ODE's using PINN's
+
+    1. test case:
+        dx/dt = -kx     with    x(t=0) = 1, k = const.
+
 """
 import torch as pt
 import matplotlib.pyplot as plt
@@ -49,14 +52,14 @@ class PINN(pt.nn.Module):
         return self.layers[-1](x)
 
 
-def compute_loss(x: pt.Tensor, t: pt.Tensor, k: Union[int, float]) -> pt.Tensor:
+def compute_loss_equation(x: pt.Tensor, t: pt.Tensor, k: Union[int, float]) -> pt.Tensor:
     """
-    TODO
+    computes the MSE loss of the ODE using the predicted x-value for a given t-value
 
-    :param x:
-    :param t:
-    :param k:
-    :return:
+    :param x: predicted x-values
+    :param t: time-value used for predicting the x-value
+    :param k: decay factor
+    :return: MSE-loss
     """
     # compute loss
     mse = pt.nn.MSELoss()
@@ -68,30 +71,37 @@ def compute_loss(x: pt.Tensor, t: pt.Tensor, k: Union[int, float]) -> pt.Tensor:
     return loss
 
 
-def compute_loss_pred(x_pred, x_real):
+def compute_loss_prediction(x_prediction: pt.Tensor, x_real: pt.Tensor) -> pt.Tensor:
+    """
+    computes the prediction loss, meaning the loss between true x-value (label) and predicted x
+
+    :param x_prediction: predicted x-value
+    :param x_real: true x-value
+    :return:  MSE loss between true x-value and prediction
+    """
     mse = pt.nn.MSELoss()
-    loss = mse(x_pred, x_real)
+    loss = mse(x_prediction, x_real)
 
     return loss
 
 
-def train_pinn(model, features_train, labels_train, n_epochs: Union[int, float] = 100, lr: float = 0.01,
+def train_pinn(model, features_train, labels_train, epochs: Union[int, float] = 100, lr: float = 0.01,
                k: Union[int, float] = 1, save_model: bool = True, save_name: str = "best_model",
                save_path: str = "", batch_size: int = 25) -> Tuple[list, list, list]:
     """
-    TODO
+    train the PINN's
 
-    :param model:
-    :param features_train:
-    :param labels_train:
-    :param n_epochs:
-    :param lr:
-    :param k:
-    :param save_model:
-    :param save_name:
-    :param save_path:
-    :param batch_size:
-    :return:
+    :param model: the model which should be trained
+    :param features_train: features, namely the time values
+    :param labels_train: labels, namely the true x-values of the analytical solution corresponding to the time-values
+    :param epochs: number of epochs to run the training
+    :param lr: learning rate
+    :param k: decay factor in the exponent of the ODE
+    :param save_model: flag if the best should be saved
+    :param save_name: name of the best model (for saving)
+    :param save_path: location where the models should be saved in
+    :param batch_size: batch size
+    :return: [total loss, equation loss, prediction loss] as tuple of lists
     """
 
     # optimizer settings
@@ -103,15 +113,15 @@ def train_pinn(model, features_train, labels_train, n_epochs: Union[int, float] 
     dataset_train = TensorDataset(features_train, labels_train)
     dataloader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True, drop_last=False)
 
-    for e in range(1, int(n_epochs)+1):
+    for e in range(1, int(epochs)+1):
         tot_loss_tmp, eq_loss_tmp, pred_loss_tmp = [], [], []
         for feature, label in dataloader_train:
             # training loop
             model.train()
             optimizer.zero_grad()
             prediction = model(feature).squeeze()
-            loss_train_eq = compute_loss(x=prediction, t=feature, k=k)
-            loss_train_pred = compute_loss_pred(x_pred=prediction, x_real=label.squeeze())
+            loss_train_eq = compute_loss_equation(x=prediction, t=feature, k=k)
+            loss_train_pred = compute_loss_prediction(x_prediction=prediction, x_real=label.squeeze())
             loss_tot = loss_train_eq + loss_train_pred
             loss_tot.backward()
             optimizer.step()
@@ -134,7 +144,8 @@ def train_pinn(model, features_train, labels_train, n_epochs: Union[int, float] 
         # print some info after every 25 epochs
         if e % 100 == 0:
             print(f"finished epoch {e},\ttraining loss = {round(tot_train_loss[-1].item(), 8)}, \t"
-                  f"equation loss = {round(eq_loss[-1].item(), 8)}, \tprediction loss = {round(pred_loss[-1].item(), 8)}")
+                  f"equation loss = {round(eq_loss[-1].item(), 8)}, "
+                  f"\tprediction loss = {round(pred_loss[-1].item(), 8)}")
 
     return tot_train_loss, eq_loss, pred_loss
 
@@ -184,6 +195,7 @@ def rescale_data(x: pt.Tensor, x_min_max: list) -> pt.Tensor:
 
 
 if __name__ == "__main__":
+    # setup
     load_path = r"/home/janis/Hiwi_ISM/ml-cfd-lecture/exercises/"
     k, n_epochs = 0.25, 1e3
 
@@ -194,24 +206,18 @@ if __name__ == "__main__":
     # ensure reproducibility
     pt.manual_seed(0)
 
-    # instantiate model: we want to predict an x(t) for a given t, but in order to compute dx/dt, at least 2 points are
-    # required
+    # instantiate model: we want to predict an x(t) for a given t
     pinn = PINN(n_inputs=1, n_outputs=1, n_layers=5, n_neurons=75)
 
     # compute analytical solution as comparison
     x, t = compute_analytical_solution(t_end=10, k=k)
 
     # sample some "real" points from the analytical solution as training- and validation data
-    label_train, feature_train = compute_analytical_solution(t_end=10, n_points=10, k=k)
-
-    # for some reason normalize data makes it really bad...
-    # x_pred, t_pred = compute_analytical_solution(n_points=100, k=k)
-    # label_train, min_max_x = scale_data(x_pred)
-    # feature_train, min_max_t = scale_data(t_pred)
+    label_train, feature_train = compute_analytical_solution(t_end=10, n_points=5, k=k)
 
     # train model using the sampled points
     losses = train_pinn(pinn, feature_train.unsqueeze(-1).requires_grad_(True),
-                        label_train.unsqueeze(-1).requires_grad_(True), k=k, n_epochs=n_epochs, save_path=load_path)
+                        label_train.unsqueeze(-1).requires_grad_(True), k=k, epochs=n_epochs, save_path=load_path)
 
     # plot training- and validation losses
     plt.plot(range(int(n_epochs)), losses[0], color="blue", label="total training loss")
@@ -237,9 +243,6 @@ if __name__ == "__main__":
     x_pred[0] = 1
     for time in range(1, len(t)):
         x_pred[time] = pinn(t[time].unsqueeze(-1)).detach().squeeze()
-
-    # rescale data
-    # x_pred = rescale_data(x_pred, min_max_x)
 
     # plot analytical solution vs. predicted one
     plt.plot(t, x, color="black", label="analytical solution")
