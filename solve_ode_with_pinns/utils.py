@@ -55,7 +55,7 @@ class PINN(pt.nn.Module, ABC):
         pass
 
 
-def train_pinn(model, features_pred, labels_pred, features_eq, labels_eq, equation_params: Union[Tuple, int, float],
+def train_pinn(model, features_pred, labels_pred, features_eq, labels_eq, equation_params: Union[Tuple, dict, int, float],
                epochs: Union[int, float] = 100, lr: float = 0.01, save_model: bool = True,
                save_name: str = "best_model", save_path: str = "", batch_size: int = 50) -> Tuple[list, list, list]:
     """
@@ -97,7 +97,7 @@ def train_pinn(model, features_pred, labels_pred, features_eq, labels_eq, equati
             # loss for prediction: 'compute_loss_prediction'-method always takes features & labels of 'dataloader_pred'
             loss_train_pred = model.compute_loss_prediction(model, f_l_pred[0], f_l_pred[1])
 
-            # loss for equation 'compute_loss_equation'-method always takes features of 'dataloader_pred' and all fixed
+            # loss for equation: 'compute_loss_equation'-method always takes features of 'dataloader_eq' and all fixed
             # parameters of the ODE
             loss_train_eq = model.compute_loss_equation(model, f_l_eq[0], equation_params)
 

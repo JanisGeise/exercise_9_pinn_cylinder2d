@@ -73,16 +73,17 @@ def compute_analytical_solution(t_start: int = 0, t_end: int = 1, k: Union[int, 
 
 def plot_sampled_points(save_path: str, t_real, x_real, t_pred, x_pred, t_eq, x_eq) -> None:
     """
+    plot the points sampled for making predictions and the points for evaluating the ODE as well as the corresponding
+    analytical solution
 
-
-    :param save_path:
-    :param t_real:
-    :param x_real:
-    :param t_pred:
-    :param x_pred:
-    :param t_eq:
-    :param x_eq:
-    :return:
+    :param save_path: path to the directory where the plot should be saved in
+    :param t_real: time values from the analytical solution
+    :param x_real: corresponding x(t)-values from the analytical solution
+    :param t_pred: time values sampled for the predictions
+    :param x_pred: corresponding x(t)-values for the predictions
+    :param t_eq: time values sampled for evaluating the equation
+    :param x_eq: corresponding x(t)-values for the equation
+    :return: None
     """
     plt.plot(t_real, x_real, color="black", label="analytical solution")
     plt.plot(t_pred, x_pred, color="red", linestyle="none", marker="o")
@@ -103,13 +104,14 @@ def plot_sampled_points(save_path: str, t_real, x_real, t_pred, x_pred, t_eq, x_
 
 def plot_prediction_vs_analytical_solution(save_path: str, load_path, model, t, x) -> None:
     """
+    plot the predicted solution x(t) against the analytical one
 
-    :param save_path:
-    :param load_path:
-    :param model:
-    :param t:
-    :param x:
-    :return:
+    :param save_path: path to the directory where the plot should be saved in
+    :param load_path: path to the model
+    :param model: the pinn-model
+    :param t: time values
+    :param x: x(t)-values of the analytical solution
+    :return: None
     """
     # load the best model and set to eval() mode
     model.load_state_dict(pt.load(load_path + "best_model_train.pt"))
@@ -159,12 +161,13 @@ def plot_losses(savepath: str, loss: Tuple[list, list, list]) -> None:
 
 def wrapper_execute_training(load_path: str, k: Union[int, float], n_epochs: Union[int, float]) -> None:
     """
+    manages the execution of generating and sampling data for the model-training as well as plotting losses, making
+    predictions and plotting the predictions against the analytical solution
 
-
-    :param load_path:
-    :param k:
-    :param n_epochs:
-    :return:
+    :param load_path: path where the plots & models should be saved in
+    :param k: decay factor for the ODE
+    :param n_epochs: number of epochs to run the training
+    :return: None
     """
     # instantiate model: we want to predict an x(t) for a given t
     pinn = PinnConstK(n_inputs=1, n_outputs=1, n_layers=5, n_neurons=75)
