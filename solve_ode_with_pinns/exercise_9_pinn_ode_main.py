@@ -20,8 +20,8 @@ if __name__ == "__main__":
     setup = {
         "load_path": r"/home/janis/Hiwi_ISM/ml-cfd-lecture/exercises/",     # path to target directory (top-level)
         "n_epochs": 500,                        # number of epochs for model training
-        "k_const": 0.25,                        # k-factor for ODE with k = const.
-        "k_variable": pt.linspace(0.2, 1, 5)    # k-factors for ODE with k != const.
+        "k_const": 0.75,                        # k-factor for ODE with k = const.
+        "k_variable": pt.linspace(0.25, 0.75, 2)    # k-factors for ODE with k != const.
     }
 
     # create directory for plots
@@ -32,7 +32,7 @@ if __name__ == "__main__":
     pt.manual_seed(0)
 
     # first ODE, k = const.
-    first_ode(load_path=setup["load_path"], k=setup["k_const"], n_epochs=setup["n_epochs"])
+    # first_ode(load_path=setup["load_path"], k=setup["k_const"], n_epochs=setup["n_epochs"])
 
     # 2nd ODE, k != const.
     second_ode(load_path=setup["load_path"], k=setup["k_variable"], n_epochs=setup["n_epochs"])

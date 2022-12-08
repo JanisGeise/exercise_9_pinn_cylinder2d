@@ -86,8 +86,8 @@ def plot_sampled_points(save_path: str, t_real, x_real, t_pred, x_pred, t_eq, x_
     :return: None
     """
     plt.plot(t_real, x_real, color="black", label="analytical solution")
-    plt.plot(t_pred, x_pred, color="red", linestyle="none", marker="o")
     plt.plot(t_eq, x_eq, color="green", linestyle="none", marker="x")
+    plt.plot(t_pred, x_pred, color="red", linestyle="none", marker="o")
 
     # dummy points for legend
     plt.plot(t_pred[0], x_pred[0], color="red", linestyle="none", marker="o", label="points prediction")
@@ -121,8 +121,7 @@ def plot_prediction_vs_analytical_solution(save_path: str, load_path, model, t, 
     x_pred = pt.zeros(x.size())
 
     # initial condition
-    x_pred[0] = 1
-    for time in range(1, len(t)):
+    for time in range(0, len(t)):
         x_pred[time] = model(t[time].unsqueeze(-1)).detach().squeeze()
 
     # plot analytical solution vs. predicted one
@@ -160,7 +159,8 @@ def plot_losses(savepath: str, loss: Tuple[list, list, list], case: str = "1st_o
     plt.close("all")
 
 
-def wrapper_execute_training(load_path: str, k: Union[int, float], n_epochs: Union[int, float]) -> None:
+def wrapper_execute_training(load_path: str, k: Union[int, float], n_epochs: Union[int, float],
+                             t_end: Union[int, float] = 10) -> None:
     """
     manages the execution of generating and sampling data for the model-training as well as plotting losses, making
     predictions and plotting the predictions against the analytical solution
@@ -168,23 +168,21 @@ def wrapper_execute_training(load_path: str, k: Union[int, float], n_epochs: Uni
     :param load_path: path where the plots & models should be saved in
     :param k: decay factor for the ODE
     :param n_epochs: number of epochs to run the training
+    :param t_end: last time step for computing / predicting the solution
     :return: None
     """
     # instantiate model: we want to predict an x(t) for a given t
-    pinn = PinnConstK(n_inputs=1, n_outputs=1, n_layers=5, n_neurons=75)
+    pinn = PinnConstK(n_inputs=1, n_outputs=1, n_layers=3, n_neurons=25)
 
     # compute analytical solution as comparison
-    x, t = compute_analytical_solution(t_end=10, k=k)
+    x, t = compute_analytical_solution(t_end=t_end, k=k)
 
-    # sample some "real" points from the analytical solution as training- and validation data (for now)
-    label_pred, feature_pred = compute_analytical_solution(t_end=10, n_points=5, k=k)
-
-    # use latin hypercube sampling to sample points as feature-label pairs for prediction (still not working...)
-    # feature_pred = lhs_sampling([0], [10], 5)
-    # label_pred = pt.exp(-k * feature_pred)
+    # use latin hypercube sampling to sample points as feature-label pairs for prediction
+    feature_pred = lhs_sampling([0], [t_end], 5)
+    label_pred = pt.exp(-k * feature_pred)
 
     # sample points for which the equation should be evaluated
-    feature_eq = lhs_sampling([0], [10], 50)
+    feature_eq = lhs_sampling([0], [t_end], 50)
     label_eq = pt.exp(-k * feature_eq)
 
     # plot sampled points

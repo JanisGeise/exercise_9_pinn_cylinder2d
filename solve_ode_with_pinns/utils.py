@@ -56,8 +56,9 @@ class PINN(pt.nn.Module, ABC):
 
 
 def train_pinn(model, features_pred, labels_pred, features_eq, labels_eq, epochs: Union[int, float] = 100,
-               lr: float = 0.01, save_model: bool = True, equation_params: Union[Tuple, dict, int, float] = None,
-               save_name: str = "best_model", save_path: str = "", batch_size: int = 50) -> Tuple[list, list, list]:
+               lr: float = 0.01, save_model: bool = True, save_name: str = "best_model", save_path: str = "",
+               equation_params: Union[Tuple, dict, int, float, pt.Tensor, list] = None,
+               batch_size: int = 100) -> Tuple[list, list, list]:
     """
     train the PINN's
 
