@@ -55,8 +55,8 @@ class PINN(pt.nn.Module, ABC):
         pass
 
 
-def train_pinn(model, features_pred, labels_pred, features_eq, labels_eq, equation_params: Union[Tuple, dict, int, float],
-               epochs: Union[int, float] = 100, lr: float = 0.01, save_model: bool = True,
+def train_pinn(model, features_pred, labels_pred, features_eq, labels_eq, epochs: Union[int, float] = 100,
+               lr: float = 0.01, save_model: bool = True, equation_params: Union[Tuple, dict, int, float] = None,
                save_name: str = "best_model", save_path: str = "", batch_size: int = 50) -> Tuple[list, list, list]:
     """
     train the PINN's
@@ -99,7 +99,10 @@ def train_pinn(model, features_pred, labels_pred, features_eq, labels_eq, equati
 
             # loss for equation: 'compute_loss_equation'-method always takes features of 'dataloader_eq' and all fixed
             # parameters of the ODE
-            loss_train_eq = model.compute_loss_equation(model, f_l_eq[0], equation_params)
+            if equation_params is None:
+                loss_train_eq = model.compute_loss_equation(model, f_l_eq[0])
+            else:
+                loss_train_eq = model.compute_loss_equation(model, f_l_eq[0], equation_params)
 
             loss_tot = loss_train_eq + loss_train_pred
             loss_tot.backward()
@@ -143,8 +146,8 @@ def lhs_sampling(x_min: list, x_max: list, n_samples: int) -> pt.Tensor:
     n_parameters = len(x_min)
     samples = pt.zeros((n_parameters, n_samples))
     for i, (lower, upper) in enumerate(zip(x_min, x_max)):
-        bounds = pt.linspace(lower, upper, n_samples+1)
-        rand = bounds[:-1] + pt.rand(n_samples) * (bounds[1:]-bounds[:-1])
+        bounds = pt.linspace(lower, upper, n_samples + 1)
+        rand = bounds[:-1] + pt.rand(n_samples) * (bounds[1:] - bounds[:-1])
         samples[i, :] = rand[pt.randperm(n_samples)]
     return samples
 

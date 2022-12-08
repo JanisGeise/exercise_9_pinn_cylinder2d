@@ -11,7 +11,8 @@
 import torch as pt
 from os import path, mkdir
 
-from exponential_decay_const_k import wrapper_execute_training
+from exponential_decay_const_k import wrapper_execute_training as first_ode
+from exponential_decay_variable_k import wrapper_execute_training as second_ode
 
 
 if __name__ == "__main__":
@@ -31,4 +32,7 @@ if __name__ == "__main__":
     pt.manual_seed(0)
 
     # first ODE, k = const.
-    wrapper_execute_training(load_path=setup["load_path"], k=setup["k_const"], n_epochs=setup["n_epochs"])
+    first_ode(load_path=setup["load_path"], k=setup["k_const"], n_epochs=setup["n_epochs"])
+
+    # 2nd ODE, k != const.
+    second_ode(load_path=setup["load_path"], k=setup["k_variable"], n_epochs=setup["n_epochs"])

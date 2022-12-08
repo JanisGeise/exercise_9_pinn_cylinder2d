@@ -6,7 +6,7 @@ This code is a modified version of the code presented in
 [ML in CFD lecture](https://github.com/AndreWeiner/ml-cfd-lecture) by [Andre Weiner](https://github.com/AndreWeiner).
 
 ## Flow past a cylinder
-The implementation for solving the Navier-Stokes-equations for a flow passt a cylinder is not working properly at the
+The implementation for solving the Navier-Stokes-equations for a flow past a cylinder is not working properly at the
 moment. The directory *code* contains all scripts related to the *cylinder2D*-case while the
 *cylinder2D_quasi_steady_flow_field.pkl* provides the flow field as training data and comparison to the predicted flow
 field.

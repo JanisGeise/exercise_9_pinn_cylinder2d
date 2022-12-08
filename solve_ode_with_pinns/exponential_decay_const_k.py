@@ -96,7 +96,7 @@ def plot_sampled_points(save_path: str, t_real, x_real, t_pred, x_pred, t_eq, x_
     plt.xlabel("$t$ $\qquad[s]$", usetex=True, fontsize=14)
     plt.ylabel("$x(t)$ $\qquad[-]$", usetex=True, fontsize=14)
     plt.legend(loc="upper right", framealpha=1.0, fontsize=10)
-    plt.savefig("".join([save_path, f"/plots/sampled_points.png"]), dpi=600)
+    plt.savefig("".join([save_path, f"/plots/sampled_points_1st_ode.png"]), dpi=600)
     plt.show(block=False)
     plt.pause(2)
     plt.close("all")
@@ -137,12 +137,13 @@ def plot_prediction_vs_analytical_solution(save_path: str, load_path, model, t, 
     plt.close("all")
 
 
-def plot_losses(savepath: str, loss: Tuple[list, list, list]) -> None:
+def plot_losses(savepath: str, loss: Tuple[list, list, list], case: str = "1st_ode") -> None:
     """
     plot training- and equation- and prediction losses
 
     :param savepath: path where the plot should be saved
     :param loss: tensor containing all the losses
+    :param case: append to save name
     :return: None
     """
     # plot training- and validation losses
@@ -153,7 +154,7 @@ def plot_losses(savepath: str, loss: Tuple[list, list, list]) -> None:
     plt.ylabel("$MSE$", usetex=True, fontsize=14)
     plt.legend(loc="upper right", framealpha=1.0, fontsize=10, ncols=1)
     plt.yscale("log")
-    plt.savefig("".join([savepath, f"/plots/losses.png"]), dpi=600)
+    plt.savefig("".join([savepath, f"/plots/losses_{case}.png"]), dpi=600)
     plt.show(block=False)
     plt.pause(2)
     plt.close("all")
@@ -175,7 +176,7 @@ def wrapper_execute_training(load_path: str, k: Union[int, float], n_epochs: Uni
     # compute analytical solution as comparison
     x, t = compute_analytical_solution(t_end=10, k=k)
 
-    # sample some "real" points from the analytical solution as training- and validation data
+    # sample some "real" points from the analytical solution as training- and validation data (for now)
     label_pred, feature_pred = compute_analytical_solution(t_end=10, n_points=5, k=k)
 
     # use latin hypercube sampling to sample points as feature-label pairs for prediction (still not working...)
