@@ -105,12 +105,6 @@ def plot_prediction_vs_analytical_solution(save_path: str, load_path, model, t, 
     # predict the solution x(t) based on given t
     x_pred = pt.zeros(x.size())
     for idx, time in enumerate(t):
-        """
-        if idx == 0:
-            # initial condition
-            x_pred[idx, :] = pt.ones(x_pred.size()[-1])
-        else:
-        """
         feature = pt.stack([time, k], dim=1)
         x_pred[idx, :] = model(feature).detach().squeeze()
 
@@ -132,8 +126,8 @@ def plot_prediction_vs_analytical_solution(save_path: str, load_path, model, t, 
     plt.close("all")
 
 
-def wrapper_execute_training(load_path: str, k: Union[list, pt.Tensor], n_epochs: Union[int, float],
-                             t_end: Union[int, float] = 10) -> None:
+def wrapper_execute_training(load_path: str, k: Union[list, pt.Tensor], n_epochs: Union[int, float] = 1000,
+                             t_end: Union[int, float] = 10, n_points_eq: int = 25, n_points_pred: int = 5) -> None:
     """
     manages the execution of generating and sampling data for the model-training as well as plotting losses, making
     predictions and plotting the predictions against the analytical solution
@@ -142,9 +136,11 @@ def wrapper_execute_training(load_path: str, k: Union[list, pt.Tensor], n_epochs
     :param k: list or tensor with decay factors for the ODE
     :param n_epochs: number of epochs to run the training
     :param t_end: last time step for computing / predicting the solution
+    :param n_points_eq: number of points for which the equation should be evaluated during training (loss equation)
+    :param n_points_pred: number of points for which the prediction should be evaluated during training (loss pred.)
     :return: None
     """
-    # instantiate model: we want to predict an x(t) for a given t
+    # instantiate model: we want to predict an x(t) for a given t and k
     pinn = PinnVariableK(n_inputs=2, n_outputs=1, n_layers=3, n_neurons=25)
 
     # compute analytical solution as comparison
@@ -152,20 +148,11 @@ def wrapper_execute_training(load_path: str, k: Union[list, pt.Tensor], n_epochs
     for idx, val in enumerate(k):
         x[:, idx], t[:, idx] = compute_analytical_solution(t_end=t_end, k=val)
 
-    """
-    # sample some "real" points from the analytical solution as training- and validation data (for now)
-    label_pred, feature_pred = pt.zeros((len(k), 5)), pt.zeros((len(k), 5, 2))
-    for idx, val in enumerate(k):
-        label_pred[idx, :], t_pred = compute_analytical_solution(t_end=10, n_points=5, k=val)
-
-        # feature: [N_k_values, N_time_values, model_input = time step + k]
-        feature_pred[idx, :, :] = pt.stack((t_pred, pt.ones(t_pred.size())*val), dim=1)
-    """
     # use latin hypercube sampling to sample points as feature-label pairs for prediction
-    label_pred, feature_pred = pt.zeros((len(k), 5)), pt.zeros((len(k), 5, 2))
+    label_pred, feature_pred = pt.zeros((len(k), n_points_pred)), pt.zeros((len(k), n_points_pred, 2))
     for idx, val in enumerate(k):
         # sample time steps in interval [t_start, t_end] for each k-value
-        t_pred = lhs_sampling([0], [t_end], 5).squeeze()
+        t_pred = lhs_sampling([0], [t_end], n_points_pred).squeeze()
 
         # feature = [sampled time steps, k-value] for each k-value
         feature_pred[idx, :] = pt.stack((t_pred, pt.ones(t_pred.size()) * val), dim=1)
@@ -174,7 +161,7 @@ def wrapper_execute_training(load_path: str, k: Union[list, pt.Tensor], n_epochs
         label_pred[idx, :] = pt.exp(-val * t_pred)
 
     # sample points for which the equation should be evaluated
-    feature_eq = lhs_sampling([0, pt.min(k)], [t_end, pt.max(k)], 50).transpose(0, 1)
+    feature_eq = lhs_sampling([0, pt.min(k)], [t_end, pt.max(k)], n_points_eq).transpose(0, 1)
     label_eq = pt.stack([pt.exp(-k_val * feature_eq[:, 0]) for k_val in k], dim=1)
 
     # plot sampled points
@@ -182,8 +169,6 @@ def wrapper_execute_training(load_path: str, k: Union[list, pt.Tensor], n_epochs
                               feature_eq[:, 0].unsqueeze(-1), label_eq)
 
     # train model using the sampled points
-    # feature_pred = feature_pred.unsqueeze(0).expand((label_pred.size()[0], label_pred.size()[1], feature_pred.size()[1]))
-
     losses = train_pinn(pinn, feature_pred.requires_grad_(True), label_pred.requires_grad_(True),
                         feature_eq.requires_grad_(True), label_eq.requires_grad_(True), epochs=n_epochs,
                         save_path=load_path)
