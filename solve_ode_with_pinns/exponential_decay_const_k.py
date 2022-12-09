@@ -54,6 +54,22 @@ class PinnConstK(PINN):
 
         return loss
 
+    def compute_loss_initial_condition(self, model, *args) -> pt.Tensor:
+        """
+        compute the loss for the initial condition
+
+        :param model: the PINN-model
+        :return: MSE loss for initial condition
+        """
+        # make prediction
+        out = model.forward(pt.zeros(1,)).squeeze()
+        mse = pt.nn.MSELoss()
+
+        # x(t = 0) = 1
+        loss = mse(out, pt.ones(1,).squeeze())
+
+        return loss
+
 
 def compute_analytical_solution(t_start: int = 0, t_end: int = 1, k: Union[int, float] = 1, c: int = 0,
                                 n_points: int = 1000) -> Tuple[pt.Tensor, pt.Tensor]:
@@ -140,7 +156,7 @@ def plot_prediction_vs_analytical_solution(save_path: str, load_path, model, t, 
     plt.close("all")
 
 
-def plot_losses(savepath: str, loss: Tuple[list, list, list], case: str = "1st_ode") -> None:
+def plot_losses(savepath: str, loss: Tuple[list, list, list, list], case: str = "1st_ode") -> None:
     """
     plot training- and equation- and prediction losses
 
@@ -153,9 +169,10 @@ def plot_losses(savepath: str, loss: Tuple[list, list, list], case: str = "1st_o
     plt.plot(range(len(loss[0])), loss[0], color="blue", label="total training loss")
     plt.plot(range(len(loss[1])), loss[1], color="green", label="equation loss")
     plt.plot(range(len(loss[2])), loss[2], color="red", label="prediction loss")
+    plt.plot(range(len(loss[3])), loss[3], color="black", label="initial condition loss")
     plt.xlabel("$epoch$ $number$", usetex=True, fontsize=14)
     plt.ylabel("$MSE$", usetex=True, fontsize=14)
-    plt.legend(loc="upper right", framealpha=1.0, fontsize=10, ncols=1)
+    plt.legend(loc="upper right", framealpha=1.0, fontsize=10, ncols=2)
     plt.yscale("log")
     plt.savefig("".join([savepath, f"/plots/losses_{case}.png"]), dpi=600)
     plt.show(block=False)

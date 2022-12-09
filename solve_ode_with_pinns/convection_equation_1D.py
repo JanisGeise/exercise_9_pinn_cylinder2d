@@ -11,8 +11,9 @@
             BC: u(t > 0, x = 0) = 1
 
 """
+import matplotlib.pyplot as plt
 
-from utils import PINN, train_pinn
+from utils import *
 
 
 class PinnHeatEquation(PINN):
@@ -24,6 +25,18 @@ class PinnHeatEquation(PINN):
 
 
 def compute_analytical_solution():
+    pass
+
+
+def plot_sampled_points():
+    pass
+
+
+def plot_prediction_vs_analytical_solution():
+    pass
+
+
+def wrapper_execute_training():
     pass
 
 

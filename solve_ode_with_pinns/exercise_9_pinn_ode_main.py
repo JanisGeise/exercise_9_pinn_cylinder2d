@@ -17,7 +17,7 @@
 
             k \\ne const.
 
-    3. test case: 1D-heat equation with const. heat coefficient ('heat_equation_1D.py'):
+    3. test case: 1D-convection equation with const. heat coefficient ('convection_equation_1D.py'):
 
         .. math:: \\frac{\partial u}{\partial t} = c * \\frac{\partial^2 u}{\partial x^2}
 
@@ -42,7 +42,7 @@ if __name__ == "__main__":
         "load_path": r"/home/janis/Hiwi_ISM/ml-cfd-lecture/exercises/",     # path to target directory (top-level)
         "n_epochs": 2000,                        # number of epochs for model training (should be >= 500, better 1e3)
         "k_const": 0.55,                         # k-factor for ODE with k = const.
-        "k_variable": linspace(0.05, 1, 6)       # k-factors for ODE with k != const.
+        "k_variable": linspace(0.05, 0.95, 6),       # k-factors for ODE with k != const.
     }
 
     # create directory for plots

@@ -54,11 +54,15 @@ class PINN(pt.nn.Module, ABC):
     def compute_loss_prediction(self, *args):
         pass
 
+    @abstractmethod
+    def compute_loss_initial_condition(self, *args):
+        pass
+
 
 def train_pinn(model, features_pred, labels_pred, features_eq, labels_eq, epochs: Union[int, float] = 100,
                lr: float = 0.01, save_model: bool = True, save_name: str = "best_model", save_path: str = "",
                equation_params: Union[Tuple, dict, int, float, pt.Tensor, list] = None,
-               batch_size: int = 100) -> Tuple[list, list, list]:
+               batch_size: int = 100) -> Tuple[list, list, list, list]:
     """
     train the PINN's
 
@@ -80,7 +84,7 @@ def train_pinn(model, features_pred, labels_pred, features_eq, labels_eq, epochs
     # optimizer settings
     optimizer = pt.optim.AdamW(params=model.parameters(), lr=lr, weight_decay=1e-3)
     scheduler = pt.optim.lr_scheduler.ExponentialLR(optimizer=optimizer, gamma=(1.0e-4 / 1.0e-2) ** (1.0 / epochs))
-    tot_train_loss, pred_loss, eq_loss, best_train_loss = [], [], [], 1e3
+    tot_train_loss, pred_loss, eq_loss, init_loss, best_train_loss = [], [], [], [], 1e3
 
     # create dataset
     dataset_pred = TensorDataset(features_pred, labels_pred)
@@ -89,7 +93,7 @@ def train_pinn(model, features_pred, labels_pred, features_eq, labels_eq, epochs
     dataloader_eq = DataLoader(dataset_eq, batch_size=batch_size, shuffle=True, drop_last=False)
 
     for e in range(1, int(epochs) + 1):
-        tot_loss_tmp, eq_loss_tmp, pred_loss_tmp = [], [], []
+        tot_loss_tmp, eq_loss_tmp, pred_loss_tmp, init_loss_tmp = [], [], [], []
         for f_l_pred, f_l_eq in zip(dataloader_pred, dataloader_eq):
             # training loop
             model.train()
@@ -102,19 +106,23 @@ def train_pinn(model, features_pred, labels_pred, features_eq, labels_eq, epochs
             # parameters of the ODE
             if equation_params is None:
                 loss_train_eq = model.compute_loss_equation(model, f_l_eq[0])
+                loss_initial_condition = model.compute_loss_initial_condition(model)
             else:
                 loss_train_eq = model.compute_loss_equation(model, f_l_eq[0], equation_params)
+                loss_initial_condition = model.compute_loss_initial_condition(model, equation_params)
 
-            loss_tot = loss_train_eq + loss_train_pred
+            loss_tot = loss_train_eq + loss_train_pred + loss_initial_condition
             loss_tot.backward()
             optimizer.step()
             tot_loss_tmp.append(loss_tot.item())
             eq_loss_tmp.append(loss_tot.item())
             pred_loss_tmp.append(loss_tot.item())
+            init_loss_tmp.append(loss_initial_condition.item())
 
         tot_train_loss.append(pt.mean(pt.tensor(tot_loss_tmp)))
         eq_loss.append(pt.mean(pt.tensor(eq_loss_tmp)))
         pred_loss.append(pt.mean(pt.tensor(pred_loss_tmp)))
+        init_loss.append(pt.mean(pt.tensor(init_loss_tmp)))
 
         scheduler.step()
 
@@ -126,11 +134,12 @@ def train_pinn(model, features_pred, labels_pred, features_eq, labels_eq, epochs
 
         # print some info after every 25 epochs
         if e % 100 == 0:
-            print(f"finished epoch {e},\ttraining loss = {round(tot_train_loss[-1].item(), 8)}, \t"
+            print(f"finished epoch {e}:\ttraining loss = {round(tot_train_loss[-1].item(), 8)}, \t"
                   f"equation loss = {round(eq_loss[-1].item(), 8)}, "
-                  f"\tprediction loss = {round(pred_loss[-1].item(), 8)}")
+                  f"\tprediction loss = {round(pred_loss[-1].item(), 8)}",
+                  f"\tinitial cond. loss = {round(init_loss[-1].item(), 8)}")
 
-    return tot_train_loss, eq_loss, pred_loss
+    return tot_train_loss, eq_loss, pred_loss, init_loss
 
 
 def lhs_sampling(x_min: list, x_max: list, n_samples: int) -> pt.Tensor:

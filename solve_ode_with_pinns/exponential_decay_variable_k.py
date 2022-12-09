@@ -15,7 +15,7 @@ from exponential_decay_const_k import compute_analytical_solution, plot_losses
 
 
 class PinnVariableK(PINN):
-    def compute_loss_equation(self, model, model_input: pt.Tensor) -> pt.Tensor:
+    def compute_loss_equation(self, model, model_input: pt.Tensor, *args) -> pt.Tensor:
         """
         computes the MSE loss of the ODE using the predicted x-value for a given t- and k-value, in contrast to
         k = const., here k is input to model
@@ -56,6 +56,23 @@ class PinnVariableK(PINN):
 
         return loss
 
+    def compute_loss_initial_condition(self, model, n_k: int) -> pt.Tensor:
+        """
+        compute the loss for the initial condition
+
+        :param model: the PINN-model
+        :param n_k: number of k-values in batch
+        :return: MSE loss for initial condition
+        """
+        # make prediction
+        out = model.forward(pt.zeros((n_k, model.n_inputs))).squeeze()
+        mse = pt.nn.MSELoss()
+
+        # x(t = 0) = 1 for all k
+        loss = mse(out, pt.ones(out.size()).squeeze())
+
+        return loss
+
 
 def plot_sampled_points_var_k(save_path: str, t_real, x_real, t_pred, x_pred, t_eq, x_eq) -> None:
     """
@@ -90,7 +107,7 @@ def plot_sampled_points_var_k(save_path: str, t_real, x_real, t_pred, x_pred, t_
     plt.close("all")
 
 
-def plot_prediction_vs_analytical_solution(save_path: str, load_path, model, t, x, k) -> None:
+def plot_prediction_vs_analytical_solution(save_path: str, load_path, model, t, x, k, k_test) -> None:
     """
     plot the predicted solution x(t) against the analytical one
 
@@ -113,13 +130,17 @@ def plot_prediction_vs_analytical_solution(save_path: str, load_path, model, t, 
         x_pred[idx, :] = model(feature).detach().squeeze()
 
     # plot analytical solution vs. predicted one
-    for k in range(x.size()[1]):
-        if k == 0:
-            plt.plot(t[:, k], x[:, k], color="black", label="analytical solution")
-            plt.plot(t[:, k], x_pred[:, k], color="red", label="predicted solution")
+    for idx in range(x.size()[1]):
+        if idx == 0:
+            plt.plot(t[:, idx], x[:, idx], color="black", label="analytical solution")
+            plt.plot(t[:, idx], x_pred[:, idx], color="red", label="predicted solution")
         else:
-            plt.plot(t[:, k], x[:, k], color="black")
-            plt.plot(t, x_pred[:, k], color="red")
+            if idx not in k_test:
+                plt.plot(t[:, idx], x[:, idx], color="black", linestyle="--")
+                plt.plot(t, x_pred[:, idx], color="red", linestyle="--")
+            else:
+                plt.plot(t[:, idx], x[:, idx], color="black")
+                plt.plot(t, x_pred[:, idx], color="red")
 
     plt.xlabel("$t$ $\qquad[s]$", usetex=True, fontsize=14)
     plt.ylabel("$x(t)$ $\qquad[-]$", usetex=True, fontsize=14)
@@ -152,9 +173,14 @@ def wrapper_execute_training(load_path: str, k: Union[list, pt.Tensor], n_epochs
     for idx, val in enumerate(k):
         x[:, idx], t[:, idx] = compute_analytical_solution(t_end=t_end, k=val)
 
+    # use min- / max and one value in between for training / testing and the other k-values to test model on unseen data
+    # idx_train = pt.multinomial(k, num_samples=len(k)-3)       # poor accuracy when inter- / extrapolating
+    idx_train = pt.multinomial(k, num_samples=len(k))
+    k_train = k[idx_train]
+
     # use latin hypercube sampling to sample points as feature-label pairs for prediction
     label_pred, feature_pred = pt.zeros((len(k), n_points_pred)), pt.zeros((len(k), n_points_pred, 2))
-    for idx, val in enumerate(k):
+    for idx, val in enumerate(k_train):
         # sample time steps in interval [t_start, t_end] for each k-value
         t_pred = lhs_sampling([0], [t_end], n_points_pred).squeeze()
 
@@ -165,23 +191,23 @@ def wrapper_execute_training(load_path: str, k: Union[list, pt.Tensor], n_epochs
         label_pred[idx, :] = pt.exp(-val * t_pred)
 
     # sample points for which the equation should be evaluated
-    feature_eq = lhs_sampling([0, pt.min(k)], [t_end, pt.max(k)], n_points_eq).transpose(0, 1)
-    label_eq = pt.stack([pt.exp(-k_val * feature_eq[:, 0]) for k_val in k], dim=1)
+    feature_eq = lhs_sampling([0, pt.min(k_train)], [t_end, pt.max(k_train)], n_points_eq).transpose(0, 1)
+    label_eq = pt.stack([pt.exp(-k_val * feature_eq[:, 0]) for k_val in k_train], dim=1)
 
     # plot sampled points
-    plot_sampled_points_var_k(load_path, t, x, feature_pred[:, :, 0], label_pred,
+    plot_sampled_points_var_k(load_path, t, x[:, idx_train], feature_pred[:, :, 0], label_pred,
                               feature_eq[:, 0].unsqueeze(-1), label_eq)
 
     # train model using the sampled points
     losses = train_pinn(pinn, feature_pred.requires_grad_(True), label_pred.requires_grad_(True),
                         feature_eq.requires_grad_(True), label_eq.requires_grad_(True), epochs=n_epochs,
-                        save_path=load_path)
+                        save_path=load_path, equation_params=int(k.size()[0]))
 
     # plot the losses
     plot_losses(load_path, losses, case="2nd_ode")
 
     # plot the analytical solutions against the predicted ones
-    plot_prediction_vs_analytical_solution(load_path, load_path, pinn, t, x, k)
+    plot_prediction_vs_analytical_solution(load_path, load_path, pinn, t, x, k, idx_train)
 
 
 if __name__ == "__main__":
