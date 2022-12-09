@@ -16,11 +16,11 @@ field.
         when calculating the gradients and losses.
 
 
-## Simpel ODE's
+## Simpel ODE's / PDE's
 As an alternative, the directory *solve_ode_with_pinns* contains scripts for solving the following ODE's using PINN's:
 
 1. exponential decay:  
    1.1. ${dx \over dt} = -kx$; $k = const.$, $x(t = 0) = 1$  
    1.2. ${dx \over dt} = -kx$; $k \ne const.$, $x(t = 0) = 1$
 2. heat equation (1D):  
-        ${du \over dt} = c {d²u \over dx²}$; $c = const.$, $x(t = 0, x) = 0$, $x(t > 0, 0) = 1$
+        ${\partial u \over  \partial t} = c {\partial^2 u \over \partial x^2}$; $c = const.$, $x(t = 0, x) = 0$, $x(t > 0, 0) = 1$

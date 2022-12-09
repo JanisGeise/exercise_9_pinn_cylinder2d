@@ -1,12 +1,14 @@
 """
     2. case: solve ODE's using PINN's, here the implementation for:
 
-        du / dt = c * d²u / dx²
+        .. math:: \\frac{\partial u}{\partial t} = c * \\frac{\partial^2 u}{\partial x^2}
 
         with:
+            c = const.
+
             IC: u(t = 0, x) = 0
+
             BC: u(t > 0, x = 0) = 1
-                c = const.
 
 """
 
@@ -19,6 +21,10 @@ class PinnHeatEquation(PINN):
 
     def compute_loss_prediction(self, *args):
         pass
+
+
+def compute_analytical_solution():
+    pass
 
 
 if __name__ == "__main__":

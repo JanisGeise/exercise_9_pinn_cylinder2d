@@ -1,7 +1,11 @@
 """
     1. case: solve ODE's using PINN's, here the implementation for:
 
-        dx/dt = -kx     with    x(t=0) = 1, k = const.
+        .. math:: \\frac{dx}{dt} = -kx
+
+            x(t=0) = 1
+
+            k = const.
 
 """
 import matplotlib.pyplot as plt
