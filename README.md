@@ -12,8 +12,8 @@ moment. The directory *code* contains all scripts related to the *cylinder2D*-ca
 field.
 
 **Note**: The *main.py* script can be executed without any issues (just the results / predictions are not accurate at
-        the moment). However, the script *train_models_minimal_case.py* will not yield any results due to *nan* values
-        when calculating the gradients and losses.
+        the moment). The script *train_models_minimal_case.py* works in general as well, but at the moment the model is
+        not learning anything (prediction loss remains constant). Further, the runtimes for training the model are very high.
 
 
 ## Simpel ODE's / PDE's
@@ -22,6 +22,6 @@ As an alternative, the directory *solve_ode_with_pinns* contains scripts for sol
 1. exponential decay:  
    1.1. ${dx \over dt} = -kx$; $k = const.$, $x(t = 0) = 1$  
    1.2. ${dx \over dt} = -kx$; $k \ne const.$, $x(t = 0) = 1$
-2. convection equation (1D):  
-        ${\partial u \over  \partial t} = c {\partial^2 u \over \partial x^2}$; $c = const.$, $x(t = 0, x) = 0$,
+2. diffusion equation (1D):  
+        ${\partial c \over  \partial t} = \alpha {\partial^2 c \over \partial x^2}$; $\alpha = const.$, $x(t = 0, x) = 0$,
         $x(t > 0, x = 0) = 1$

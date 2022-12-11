@@ -58,6 +58,10 @@ class PINN(pt.nn.Module, ABC):
     def compute_loss_initial_condition(self, *args):
         pass
 
+    @abstractmethod
+    def compute_loss_boundary_condition(self, *args):
+        pass
+
 
 def train_pinn(model, features_pred, labels_pred, features_eq, labels_eq, epochs: Union[int, float] = 100,
                lr: float = 0.01, save_model: bool = True, save_name: str = "best_model", save_path: str = "",
@@ -115,8 +119,8 @@ def train_pinn(model, features_pred, labels_pred, features_eq, labels_eq, epochs
             loss_tot.backward()
             optimizer.step()
             tot_loss_tmp.append(loss_tot.item())
-            eq_loss_tmp.append(loss_tot.item())
-            pred_loss_tmp.append(loss_tot.item())
+            eq_loss_tmp.append(loss_train_eq.item())
+            pred_loss_tmp.append(loss_train_pred.item())
             init_loss_tmp.append(loss_initial_condition.item())
 
         tot_train_loss.append(pt.mean(pt.tensor(tot_loss_tmp)))
@@ -132,7 +136,7 @@ def train_pinn(model, features_pred, labels_pred, features_eq, labels_eq, epochs
                 pt.save(model.state_dict(), f"{save_path}/{save_name}_train.pt")
                 best_train_loss = tot_train_loss[-1]
 
-        # print some info after every 25 epochs
+        # print some info after every 100 epochs
         if e % 100 == 0:
             print(f"finished epoch {e}:\ttraining loss = {round(tot_train_loss[-1].item(), 8)}, \t"
                   f"equation loss = {round(eq_loss[-1].item(), 8)}, "

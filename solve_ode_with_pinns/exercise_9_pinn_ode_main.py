@@ -17,16 +17,16 @@
 
             k \\ne const.
 
-    3. test case: 1D-convection equation with const. heat coefficient ('convection_equation_1D.py'):
+    3. test case: 1D-diffusion equation with const. diffusion coefficient ('convection_equation_1D.py'):
 
-        .. math:: \\frac{\partial u}{\partial t} = c * \\frac{\partial^2 u}{\partial x^2}
+        .. math:: \\frac{\partial c}{\partial t} = \\alpha \\frac{\partial^2 c}{\partial x^2}
 
         with:
-            c = const.
+            alpha = const.
 
-            IC: u(t = 0, x) = 0
+            IC: c(t = 0, x) = 0
 
-            BC: u(t > 0, x = 0) = 1
+            BC: c(t > 0, x = 0) = 1
 
 """
 from os import path, mkdir

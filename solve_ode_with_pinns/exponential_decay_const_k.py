@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 from utils import *
 
 
-class PinnConstK(PINN):
+class PinnConstK(PINN, ABC):
     def compute_loss_equation(self, model, t: pt.Tensor, k: Union[int, float]) -> pt.Tensor:
         """
         computes the MSE loss of the ODE using the predicted x-value for a given t- and k-value

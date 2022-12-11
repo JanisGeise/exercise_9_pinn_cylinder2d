@@ -3,27 +3,27 @@
 """
 import os
 import pickle
-import numpy as np
 from os.path import exists
 
 import torch as pt
 from typing import Tuple
 
-from torch import manual_seed
+from matplotlib import pyplot as plt
+from torch import manual_seed, Tensor
 from torch.utils.data import DataLoader, TensorDataset
 
-from post_process_results import plot_loss, compare_flow_fields, make_flow_gif
+from post_process_results import compare_flow_fields, make_flow_gif
 from dataloader import scale_data
 
 
 class FCModel(pt.nn.Module):
-    def __init__(self, n_inputs: int, n_outputs: int, n_layers: int = 8, n_neurons: int = 25,
+    def __init__(self, n_inputs: int, n_outputs: int, n_layers: int = 3, n_neurons: int = 25,
                  activation: callable = pt.tanh):
         """
         implements a fully-connected neural network
 
-        :param n_inputs: N probes * N time steps + (1 action + 1 cl + 1 cd) * N time steps
-        :param n_outputs: N probes
+        :param n_inputs: x-, y- and t
+        :param n_outputs: psi & p
         :param n_layers: number of hidden layers
         :param n_neurons: number of neurons per layer
         :param activation: activation function
@@ -39,13 +39,13 @@ class FCModel(pt.nn.Module):
 
         # input layer to first hidden layer
         self.layers.append(pt.nn.Linear(self.n_inputs, self.n_neurons))
-        # self.layers.append(pt.nn.BatchNorm1d(num_features=self.n_neurons))
+        self.layers.append(pt.nn.LayerNorm(self.n_neurons))
 
         # add more hidden layers if specified
         if self.n_layers > 1:
             for hidden in range(self.n_layers - 1):
                 self.layers.append(pt.nn.Linear(self.n_neurons, self.n_neurons))
-                # self.layers.append(pt.nn.BatchNorm1d(num_features=self.n_neurons))
+                self.layers.append(pt.nn.LayerNorm(self.n_neurons))
 
         # last hidden layer to output layer
         self.layers.append(pt.nn.Linear(self.n_neurons, self.n_outputs))
@@ -55,94 +55,59 @@ class FCModel(pt.nn.Module):
             x = self.activation(self.layers[i_layer](x))
         return self.layers[-1](x)
 
-    def data_mse_without_p(self, feature, len_x, len_y, u, v):
+    def loss_prediction(self, feature, len_x, len_y, u, v) -> pt.Tensor:
+        # in order to use autograd, the input variables need to have the same name as used when derivate
+        x, y, t = feature[:, :len_x], feature[:, len_x:len_x + len_y], feature[:, -1]
+
         # calculate MSE loss of velocity fields
-        predict_out = self.forward(feature)
-        psi = predict_out[:, :len_x]
+        out = self.forward(pt.concat([x, y, t.unsqueeze(-1)], dim=1))
+        psi = out[:, :len_x]
 
         # derivatives: u = d(Psi) / dy, v = - d(Psi) / dx
-        d_psi = np.gradient(psi.squeeze().detach().numpy())
-        dy = np.gradient(feature[:, len_x:len_x + len_y].squeeze().detach().numpy())
-        dx = np.gradient(feature[:, :len_x].squeeze().detach().numpy())
-        u_pred = d_psi / dy
-        v_pred = - d_psi / dx
-
-        # u_predict = pt.autograd.grad(psi.sum(), feature[:, len_x:len_x + len_y], create_graph=True)[0]
-        # v_predict = -pt.autograd.grad(psi, feature[:, :len_x], create_graph=True)[0]
+        u_predict = pt.autograd.grad(psi, y, create_graph=True, grad_outputs=pt.ones_like(psi))[0]
+        v_predict = -pt.autograd.grad(psi, x, create_graph=True, grad_outputs=pt.ones_like(psi))[0]
         mse = pt.nn.MSELoss()
-        # mse_predict = mse(u_predict, u) + mse(v_predict, v)
-        mse_predict = mse(pt.tensor(u_pred), u.squeeze()) + mse(pt.tensor(v_pred), v.squeeze())
+        mse_predict = mse(u_predict, u) + mse(v_predict, v)
         return mse_predict
 
-    def equation_mse(self, feature, len_x, len_y, t_in, Re: int = 100):
-        # create time tensor for gradients
-        t = (pt.ones(size=(t_in.size()[0], len_x)) * t_in).squeeze().detach().numpy()
-
-        x, y = feature[:, :len_x].squeeze().detach().numpy(), feature[:, len_x:len_x + len_y].squeeze().detach().numpy()
-        # x.requires_grad, y.requires_grad = True, True
+    def loss_equation(self, feature, len_x, len_y, Re: int = 100) -> pt.Tensor:
+        # in order to use autograd, the input variables need to have the same name as used when derivate
+        x, y, t = feature[:, :len_x], feature[:, len_x:len_x + len_y], feature[:, -1]
 
         # calculate MSE loss of the NS-equations, predict Psi and p for a given x, y and t
-        predict_out = self.forward(feature)
-        psi = predict_out[:, :len_x].squeeze().detach().numpy()
-        p = predict_out[:, len_x:].squeeze().detach().numpy()
+        predict_out = self.forward(pt.concat([x, y, t.unsqueeze(-1)], dim=1))
+        psi = predict_out[:, :len_x].squeeze()
+        p = predict_out[:, len_x:].squeeze()
 
-        d_psi = np.gradient(psi)
-        dy = np.gradient(y)
-        dx = np.gradient(x)
-        # dt = np.gradient(t)
-        u = d_psi / dy
-        v = - d_psi / dx
-
-        # 1st derivatives
-        du = np.gradient(u)
-        dv = np.gradient(v)
-        # u_t = du / dt
-        # v_t = dv / dt
-        u_x = du / dx
-        u_y = du / dy
-        v_x = dv / dx
-        v_y = dv / dy
-        p_x = np.gradient(p) / dx
-        p_y = np.gradient(p) / dy
-
-        # 2nd derivatives
-        u_xx = np.gradient(du) / np.gradient(dx)
-        u_yy = np.gradient(du) / np.gradient(dy)
-        v_xx = np.gradient(dv) / np.gradient(dx)
-        v_yy = np.gradient(dv) / np.gradient(dy)
-
-        """
         # Calculate each partial derivative by automatic differentiation
-        u = pt.autograd.grad(psi.sum(), y, create_graph=True)[0]
-        v = -pt.autograd.grad(psi.sum(), x, create_graph=True)[0]
-        u_t = pt.autograd.grad(u.sum(), t.require_grad(True), create_graph=True)[0]
-        u_x = pt.autograd.grad(u.sum(), x, create_graph=True)[0]
-        u_y = pt.autograd.grad(u.sum(), y, create_graph=True)[0]
-        v_t = pt.autograd.grad(v.sum(), t.require_grad(True), create_graph=True)[0]
-        v_x = pt.autograd.grad(v.sum(), x, create_graph=True)[0]
-        v_y = pt.autograd.grad(v.sum(), y, create_graph=True)[0]
-        p_x = pt.autograd.grad(p.sum(), x, create_graph=True)[0]
-        p_y = pt.autograd.grad(p.sum(), y, create_graph=True)[0]
-        u_xx = pt.autograd.grad(u_x.sum(), x, create_graph=True)[0]
-        u_yy = pt.autograd.grad(u_y.sum(), y, create_graph=True)[0]
-        v_xx = pt.autograd.grad(v_x.sum(), x, create_graph=True)[0]
-        v_yy = pt.autograd.grad(v_y.sum(), y, create_graph=True)[0]
-        """
-        # non-dimensionalized steady NS-equations (since only 1 time step is predicted)
-        # f = u_t + (u * u_x + v * u_y) + p_x - 1.0/Re * (u_xx + u_yy)
-        f = (u * u_x + v * u_y) + p_x - 1.0/Re * (u_xx + u_yy)
-        # g = v_t + (u * v_x + v * v_y) + p_y - 1.0/Re * (v_xx + v_yy)
-        g = (u * v_x + v * v_y) + p_y - 1.0/Re * (v_xx + v_yy)
-        mse = pt.nn.MSELoss()
-        batch_t_zeros = (pt.zeros((x.shape[0], ))).float()
+        u = pt.autograd.grad(psi, y, create_graph=True, grad_outputs=pt.ones_like(psi))[0]
+        v = -pt.autograd.grad(psi, x, create_graph=True, grad_outputs=pt.ones_like(psi))[0]
+        u_t = pt.autograd.grad(u, t, create_graph=True, grad_outputs=pt.ones_like(psi))[0]
+        u_x = pt.autograd.grad(u, x, create_graph=True, grad_outputs=pt.ones_like(psi))[0]
+        u_y = pt.autograd.grad(u, y, create_graph=True, grad_outputs=pt.ones_like(psi))[0]
+        v_t = pt.autograd.grad(v, t, create_graph=True, grad_outputs=pt.ones_like(psi))[0]
+        v_x = pt.autograd.grad(v, x, create_graph=True, grad_outputs=pt.ones_like(psi))[0]
+        v_y = pt.autograd.grad(v, y, create_graph=True, grad_outputs=pt.ones_like(psi))[0]
+        p_x = pt.autograd.grad(p, x, create_graph=True, grad_outputs=pt.ones_like(psi))[0]
+        p_y = pt.autograd.grad(p, y, create_graph=True, grad_outputs=pt.ones_like(psi))[0]
+        u_xx = pt.autograd.grad(u_x, x, create_graph=True, grad_outputs=pt.ones_like(psi))[0]
+        u_yy = pt.autograd.grad(u_y, y, create_graph=True, grad_outputs=pt.ones_like(psi))[0]
+        v_xx = pt.autograd.grad(v_x, x, create_graph=True, grad_outputs=pt.ones_like(psi))[0]
+        v_yy = pt.autograd.grad(v_y, y, create_graph=True, grad_outputs=pt.ones_like(psi))[0]
+
+        # non-dimensionalized NS-equations
+        f = u_t.unsqueeze(-1) * pt.ones(u.size()) + (u * u_x + v * u_y) + p_x - 1.0/Re * (u_xx + u_yy)
+        g = v_t.unsqueeze(-1) * pt.ones(u.size()) + (u * v_x + v * v_y) + p_y - 1.0/Re * (v_xx + v_yy)
+
         # equations = 0 -> MSE = difference to zero
-        mse_equation = mse(pt.tensor(f), batch_t_zeros) + mse(pt.tensor(g), batch_t_zeros)
+        mse = pt.nn.MSELoss()
+        mse_equation = mse(f, pt.zeros(f.size())) + mse(g, pt.zeros(g.size()))
         return mse_equation
 
 
 def train_model(model: pt.nn.Module, features_train: pt.Tensor, labels_train: pt.Tensor, x: pt.Tensor, y: pt.Tensor,
-                re_no: int = 100, epochs: int = 7500, lr: float = 0.01, batch_size: int = 1,
-                save_model: bool = True, save_name: str = "bestModel", save_dir: str = "env_model") -> None:
+                re_no: int = 100, epochs: int = 1000, lr: float = 0.01, batch_size: int = 2, save_model: bool = True,
+                save_name: str = "bestModel", save_dir: str = "env_model") -> Tuple[list, list, list]:
     """
     train environment model based on sampled trajectories
 
@@ -165,67 +130,52 @@ def train_model(model: pt.nn.Module, features_train: pt.Tensor, labels_train: pt
 
     # optimizer settings
     optimizer = pt.optim.AdamW(params=model.parameters(), lr=lr, weight_decay=1e-3)
-    pt.autograd.set_detect_anomaly(True)
+    scheduler = pt.optim.lr_scheduler.ExponentialLR(optimizer=optimizer, gamma=(1.0e-4 / 1.0e-2) ** (1.0 / epochs))
 
     # lists for storing losses
-    best_val_loss, best_train_loss = 1.0e5, 1.0e5
-    training_loss, validation_loss = [], []
+    tot_train_loss, pred_loss, eq_loss, best_train_loss = [], [], [], 1e3
 
     # create dataset & dataloader -> dimensions always: [batch_size, N_features (or N_labels)]
-    dataset_train = TensorDataset(features_train, labels_train)
-    dataloader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True, drop_last=True)
+    dataset_train = TensorDataset(features_train.requires_grad_(True), labels_train.requires_grad_(True))
+    dataloader_train = DataLoader(dataset_train, batch_size=batch_size, shuffle=True, drop_last=False)
 
     for epoch in range(1, epochs + 1):
-        # TODO: save losses as in original training routine, so the plotting fct can be used
-        t_loss_tmp, v_loss_tmp = [], []
+        tot_loss_tmp, eq_loss_tmp, pred_loss_tmp = [], [], []
 
         # training loop
-        model.train()
         for feature, label in dataloader_train:
+            model.train()
             optimizer.zero_grad()
 
             # make prediction
-            mse_predict = model.data_mse_without_p(feature=feature.requires_grad_(True), len_x=x.size()[0],
-                                                   len_y=y.size()[0], u=label[:, :, 0], v=label[:, :, 1])
-            mse_equation = model.equation_mse(feature, t_in=feature[:, -1], len_x=x.size()[0], len_y=y.size()[0],
-                                              Re=re_no)
-            loss = (mse_predict + mse_equation).requires_grad_(True)
-            loss.backward()
-            print(loss.item())
+            loss_pred = model.loss_prediction(feature=feature, len_x=x.size()[0], len_y=y.size()[0], u=label[:, :, 0],
+                                              v=label[:, :, 1])
+            loss_eq = model.loss_equation(feature, len_x=x.size()[0], len_y=y.size()[0], Re=re_no)
+            loss_tot = loss_pred + loss_eq
+            loss_tot.backward()
             optimizer.step()
-            # t_loss_tmp.append(loss.item())
-        # training_loss.append(pt.mean(pt.tensor(t_loss_tmp)))
-        exit()
-        # validation loop
-        with pt.no_grad():
-            pass
-            """
-            # TODO: use loss calculation as implemented in original training routine (val. not required, since NS-eq used)
-            for batch in dataloader_val:
-                feature, label = batch
-                prediction = model(feature).squeeze()
-                loss_val = criterion(prediction, label.squeeze())
-                v_loss_tmp.append(pt.mean(loss_val).item())
-            """
-        validation_loss.append(pt.mean(pt.tensor(v_loss_tmp)))
+            tot_loss_tmp.append(loss_tot.item())
+            eq_loss_tmp.append(loss_eq.item())
+            pred_loss_tmp.append(loss_pred.item())
+
+        tot_train_loss.append(pt.mean(pt.tensor(tot_loss_tmp)))
+        eq_loss.append(pt.mean(pt.tensor(eq_loss_tmp)))
+        pred_loss.append(pt.mean(pt.tensor(pred_loss_tmp)))
+        scheduler.step()
 
         # save best models
         if save_model:
-            if training_loss[-1] < best_train_loss:
+            if tot_train_loss[-1] < best_train_loss:
                 pt.save(model.state_dict(), f"{save_dir}/{save_name}_train.pt")
-                best_train_loss = training_loss[-1]
-            if validation_loss[-1] < best_val_loss:
-                pt.save(model.state_dict(), f"{save_dir}/{save_name}_val.pt")
-                best_val_loss = validation_loss[-1]
+                best_train_loss = tot_train_loss[-1]
 
         # print some info after every 100 epochs
         if epoch % 100 == 0:
-            print(f"finished epoch {epoch}, training loss = {round(training_loss[-1].item(), 8)}, "
-                  f"validation loss = {round(validation_loss[-1].item(), 8)}")
+            print(f"finished epoch {epoch}:\ttraining loss = {round(tot_train_loss[-1].item(), 8)}, \t"
+                  f"equation loss = {round(eq_loss[-1].item(), 8)}, "
+                  f"\tprediction loss = {round(pred_loss[-1].item(), 8)}")
 
-        # early stopping
-        if training_loss[-1] and validation_loss[-1] <= 1e-5:
-            break
+    return tot_train_loss, eq_loss, pred_loss
 
 
 def read_data(file: str, u_infty: int = 1, d: float = 0.1, mu: float = 1e-3, scale: bool = True) -> Tuple[dict, dict]:
@@ -301,6 +251,29 @@ def create_feature_label_pairs(data: dict) -> Tuple[pt.Tensor, pt.Tensor]:
     return feature, label
 
 
+def plot_losses(savepath: str, loss: Tuple[list, list, list], case: str = "NS_eq") -> None:
+    """
+    plot training- and equation- and prediction losses
+
+    :param savepath: path where the plot should be saved
+    :param loss: tensor containing all the losses
+    :param case: append to save name
+    :return: None
+    """
+    # plot training- and validation losses
+    plt.plot(range(len(loss[0])), loss[0], color="blue", label="total training loss")
+    plt.plot(range(len(loss[1])), loss[1], color="green", label="equation loss")
+    plt.plot(range(len(loss[2])), loss[2], color="red", label="prediction loss")
+    plt.xlabel("$epoch$ $number$", usetex=True, fontsize=14)
+    plt.ylabel("$MSE$", usetex=True, fontsize=14)
+    plt.legend(loc="upper right", framealpha=1.0, fontsize=10, ncols=2)
+    plt.yscale("log")
+    plt.savefig("".join([savepath, f"/plots/losses_{case}.png"]), dpi=600)
+    plt.show(block=False)
+    plt.pause(2)
+    plt.close("all")
+
+
 if __name__ == "__main__":
     # Setup
     setup = {
@@ -309,7 +282,7 @@ if __name__ == "__main__":
         "save_path": r"../TEST/",  # path for saving all results
         "Re": 100,  # Reynolds number
         "U_infty": 1,  # free stream velocity at inlet
-        "epochs": 100,  # number of epochs for training
+        "epochs": 1000,  # number of epochs for training
     }
 
     # ensure reproducibility
@@ -325,14 +298,16 @@ if __name__ == "__main__":
     pinn = FCModel(n_inputs=features.size()[-1], n_outputs=labels.size()[1] * 2)
 
     # train models
-    train_model(pinn, features, labels, epochs=setup["epochs"], x=cfd_data["x"], y=cfd_data["y"], re_no=setup["Re"])
+    losses = train_model(pinn, features, labels, epochs=setup["epochs"], x=cfd_data["x"], y=cfd_data["y"],
+                         re_no=setup["Re"])
 
     # create directory for plots
     if not exists(setup["save_path"] + "plots"):
         os.mkdir(setup["save_path"] + "plots")
-    exit()
+
     # plot losses of model training
-    plot_loss(setup["save_path"])
+    plot_losses(setup["save_path"], losses)
+    exit()
 
     # plot results
     print("\nstart predicting flow field...")

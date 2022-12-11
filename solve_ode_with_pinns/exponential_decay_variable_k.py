@@ -14,7 +14,7 @@ from utils import *
 from exponential_decay_const_k import compute_analytical_solution, plot_losses
 
 
-class PinnVariableK(PINN):
+class PinnVariableK(PINN, ABC):
     def compute_loss_equation(self, model, model_input: pt.Tensor, *args) -> pt.Tensor:
         """
         computes the MSE loss of the ODE using the predicted x-value for a given t- and k-value, in contrast to
@@ -22,7 +22,6 @@ class PinnVariableK(PINN):
 
         :param model: the PINN-model
         :param model_input: points in time + 1 point for decay factor k each
-        :param t: time-value used for predicting the x-value
         :return: MSE-loss
         """
         # make prediction: the variable 't' needs to be defined as input, otherwise error since it wouldn't be part of
@@ -116,7 +115,8 @@ def plot_prediction_vs_analytical_solution(save_path: str, load_path, model, t, 
     :param model: the pinn-model
     :param t: time values
     :param x: x(t)-values of the analytical solution
-    :param x: k-values
+    :param k: k-values
+    :param k_test: indices of the k-values the PINN was trained on
     :return: None
     """
     # load the best model and set to eval() mode
