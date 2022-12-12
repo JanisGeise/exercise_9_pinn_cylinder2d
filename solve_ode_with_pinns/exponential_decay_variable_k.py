@@ -8,13 +8,11 @@
             k \\ne const.
 
 """
-from matplotlib import pyplot as plt
-
 from utils import *
-from exponential_decay_const_k import compute_analytical_solution, plot_losses
+from exponential_decay_const_k import compute_analytical_solution
 
 
-class PinnVariableK(PINN, ABC):
+class PinnVariableK(PINN):
     def compute_loss_equation(self, model, model_input: pt.Tensor, *args) -> pt.Tensor:
         """
         computes the MSE loss of the ODE using the predicted x-value for a given t- and k-value, in contrast to
@@ -71,6 +69,9 @@ class PinnVariableK(PINN, ABC):
         loss = mse(out, pt.ones(out.size()).squeeze())
 
         return loss
+
+    def compute_loss_boundary_condition(self, *args):
+        pass
 
 
 def plot_sampled_points_var_k(save_path: str, t_real, x_real, t_pred, x_pred, t_eq, x_eq) -> None:

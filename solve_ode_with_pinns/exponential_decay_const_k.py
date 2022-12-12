@@ -8,12 +8,10 @@
             k = const.
 
 """
-import matplotlib.pyplot as plt
-
 from utils import *
 
 
-class PinnConstK(PINN, ABC):
+class PinnConstK(PINN):
     def compute_loss_equation(self, model, t: pt.Tensor, k: Union[int, float]) -> pt.Tensor:
         """
         computes the MSE loss of the ODE using the predicted x-value for a given t- and k-value
@@ -69,6 +67,9 @@ class PinnConstK(PINN, ABC):
         loss = mse(out, pt.ones(1,).squeeze())
 
         return loss
+
+    def compute_loss_boundary_condition(self, *args):
+        pass
 
 
 def compute_analytical_solution(t_start: int = 0, t_end: int = 1, k: Union[int, float] = 1, c: int = 0,
@@ -151,30 +152,6 @@ def plot_prediction_vs_analytical_solution(save_path: str, load_path, model, t, 
     plt.ylabel("$x(t)$ $\qquad[-]$", usetex=True, fontsize=14)
     plt.legend(loc="upper right", framealpha=1.0, fontsize=10)
     plt.savefig("".join([save_path, f"/plots/prediction_vs_analytical_solution_const_k.png"]), dpi=600)
-    plt.show(block=False)
-    plt.pause(2)
-    plt.close("all")
-
-
-def plot_losses(savepath: str, loss: Tuple[list, list, list, list], case: str = "1st_ode") -> None:
-    """
-    plot training- and equation- and prediction losses
-
-    :param savepath: path where the plot should be saved
-    :param loss: tensor containing all the losses
-    :param case: append to save name
-    :return: None
-    """
-    # plot training- and validation losses
-    plt.plot(range(len(loss[0])), loss[0], color="blue", label="total training loss")
-    plt.plot(range(len(loss[1])), loss[1], color="green", label="equation loss")
-    plt.plot(range(len(loss[2])), loss[2], color="red", label="prediction loss")
-    plt.plot(range(len(loss[3])), loss[3], color="black", label="initial condition loss")
-    plt.xlabel("$epoch$ $number$", usetex=True, fontsize=14)
-    plt.ylabel("$MSE$", usetex=True, fontsize=14)
-    plt.legend(loc="upper right", framealpha=1.0, fontsize=10, ncols=2)
-    plt.yscale("log")
-    plt.savefig("".join([savepath, f"/plots/losses_{case}.png"]), dpi=600)
     plt.show(block=False)
     plt.pause(2)
     plt.close("all")

@@ -5,6 +5,7 @@ import torch as pt
 
 from typing import Union, Tuple
 from abc import ABC, abstractmethod
+from matplotlib import pyplot as plt
 from torch.utils.data import DataLoader, TensorDataset
 
 
@@ -164,6 +165,30 @@ def lhs_sampling(x_min: list, x_max: list, n_samples: int) -> pt.Tensor:
         rand = bounds[:-1] + pt.rand(n_samples) * (bounds[1:] - bounds[:-1])
         samples[i, :] = rand[pt.randperm(n_samples)]
     return samples
+
+
+def plot_losses(savepath: str, loss: Tuple[list, list, list, list], case: str = "1st_ode") -> None:
+    """
+    plot training- and equation- and prediction losses
+
+    :param savepath: path where the plot should be saved
+    :param loss: tensor containing all the losses
+    :param case: append to save name
+    :return: None
+    """
+    # plot training- and validation losses
+    plt.plot(range(len(loss[0])), loss[0], color="blue", label="total training loss")
+    plt.plot(range(len(loss[1])), loss[1], color="green", label="equation loss")
+    plt.plot(range(len(loss[2])), loss[2], color="red", label="prediction loss")
+    plt.plot(range(len(loss[3])), loss[3], color="black", label="initial condition loss")
+    plt.xlabel("$epoch$ $number$", usetex=True, fontsize=14)
+    plt.ylabel("$MSE$", usetex=True, fontsize=14)
+    plt.legend(loc="upper right", framealpha=1.0, fontsize=10, ncols=2)
+    plt.yscale("log")
+    plt.savefig("".join([savepath, f"/plots/losses_{case}.png"]), dpi=600)
+    plt.show(block=False)
+    plt.pause(2)
+    plt.close("all")
 
 
 if __name__ == "__main__":
