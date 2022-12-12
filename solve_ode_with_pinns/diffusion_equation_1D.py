@@ -202,7 +202,7 @@ def wrapper_execute_training(load_path: str, x_min: Union[int, float] = 0, x_max
     :return: None
     """
     # instantiate model: we want to predict an c(t, x) for a given t-value and x-value
-    pinn = PinnDiffusion1D(n_inputs=2, n_outputs=1, n_layers=8, n_neurons=25)
+    pinn = PinnDiffusion1D(n_inputs=2, n_outputs=1, n_layers=4, n_neurons=25)
 
     # use lhs to sample points for prediction and equation in given bounds
     t_eq, x_eq = lhs_sampling([t_start, x_min], [t_end, x_max], n_samples=n_points_eq)
