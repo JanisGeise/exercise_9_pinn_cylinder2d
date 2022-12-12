@@ -113,7 +113,6 @@ def compute_analytical_solution(x: pt.Tensor, t: pt.Tensor, alpha: Union[int, fl
     :param alpha: diffusion factor
     :return:  analytical solution c(t, x)
     """
-    # TODO: is this correct? -> if u(t = 0, x) = 0 -> frac gives nan due to division by zero
     return 1 - pt.erf(x / pt.sqrt(4 * alpha * t))
 
 
@@ -156,7 +155,10 @@ def plot_prediction_vs_analytical_solution(save_path: str, model, mesh_x_ana, me
     model.eval()
 
     # create features for model input and make prediction
-    input = pt.stack([mesh_x_ana.flatten(), mesh_t_ana.flatten()], dim=1)
+    x, x_min_max = scale_data(mesh_x_ana)
+    t, x_min_max = scale_data(mesh_t_ana)
+
+    input = pt.stack([x.flatten(), t.flatten()], dim=1)
     out = model(input).squeeze().detach().numpy().reshape(mesh_x_ana.size())
 
     # plot the results
@@ -172,7 +174,7 @@ def plot_prediction_vs_analytical_solution(save_path: str, model, mesh_x_ana, me
             # plot predicted solution
             c_pred = ax[p].contourf(mesh_x_ana, mesh_t_ana, out, levels=25)
             c_pred = plt.colorbar(c_pred, ax=ax[p])
-            c_pred.set_label("$c$ $\quad[mol / m]$", usetex=True, labelpad=20, fontsize=14)
+            c_pred.set_label("$c^*$ $\quad[-]$", usetex=True, labelpad=20, fontsize=14)
             ax[p].set_title("$predicted$ $solution$", fontsize=16, usetex=True)
         ax[p].set_xlabel("$x\quad[m]$", fontsize=14, usetex=True)
     fig.subplots_adjust(hspace=0.05)
@@ -184,7 +186,7 @@ def plot_prediction_vs_analytical_solution(save_path: str, model, mesh_x_ana, me
 
 
 def wrapper_execute_training(load_path: str, x_min: Union[int, float] = 0, x_max: Union[int, float] = 1,
-                             n_epochs: Union[int, float] = 3000, n_points_pred: int = 10, n_points_eq: int = 75,
+                             n_epochs: Union[int, float] = 3000, n_points_pred: int = 10, n_points_eq: int = 50,
                              t_start: Union[int, float] = 0, t_end: Union[int, float] = 1,
                              alpha: Union[int, float] = 1) -> None:
     """
@@ -202,7 +204,7 @@ def wrapper_execute_training(load_path: str, x_min: Union[int, float] = 0, x_max
     :return: None
     """
     # instantiate model: we want to predict an c(t, x) for a given t-value and x-value
-    pinn = PinnDiffusion1D(n_inputs=2, n_outputs=1, n_layers=8, n_neurons=25)
+    pinn = PinnDiffusion1D(n_inputs=2, n_outputs=1, n_layers=3, n_neurons=50)
 
     # use lhs to sample points for prediction and equation in given bounds
     t_eq, x_eq = lhs_sampling([t_start, x_min], [t_end, x_max], n_samples=n_points_eq)
@@ -215,6 +217,12 @@ def wrapper_execute_training(load_path: str, x_min: Union[int, float] = 0, x_max
     feature_pred, label_pred = pt.stack([t_pred, x_pred], dim=1), compute_analytical_solution(x_pred, t_pred, alpha)
     feature_eq, label_eq = pt.stack([t_eq, x_eq], dim=1), compute_analytical_solution(x_eq, t_eq, alpha)
 
+    # scale everything to [0, 1]
+    feature_pred, _ = scale_data(feature_pred)
+    feature_eq, _ = scale_data(feature_eq)
+    label_pred, _ = scale_data(label_pred)
+    label_eq, _ = scale_data(label_eq)
+
     # train model using the sampled points
     losses = train_pinn(pinn, feature_pred.requires_grad_(True), label_pred.unsqueeze(-1).requires_grad_(True),
                         feature_eq.requires_grad_(True), label_eq.unsqueeze(-1).requires_grad_(True), epochs=n_epochs,
@@ -226,8 +234,10 @@ def wrapper_execute_training(load_path: str, x_min: Union[int, float] = 0, x_max
     # compare analytical solution against the predicted one
     mesh_x, mesh_t = pt.meshgrid([pt.linspace(x_min, x_max, 50), pt.linspace(t_start, t_end, 100)], indexing="ij")
 
-    # compute analytical solution
-    c = compute_analytical_solution(mesh_x, mesh_t, 1e-3)
+    # compute analytical solution and add initial condition (otherwise it's nan)
+    c = compute_analytical_solution(mesh_x, mesh_t, alpha)
+    c[0, 0] = 0
+    c, _ = scale_data(c)
     plot_prediction_vs_analytical_solution(load_path, pinn, mesh_x, mesh_t, c)
 
 

@@ -191,5 +191,29 @@ def plot_losses(savepath: str, loss: Tuple[list, list, list, list], case: str = 
     plt.close("all")
 
 
+def scale_data(x: pt.Tensor) -> Tuple[pt.Tensor, list]:
+    """
+    scale data to the interval [0, 1] using a min-max-normalization
+
+    :param x: data which should be normalized
+    :return: tensor with normalized data and corresponding (global) min- and max-values used for normalization
+    """
+    # x_i_normalized = (x_i - x_min) / (x_max - x_min)
+    x_min_max = [pt.min(x), pt.max(x)]
+    return pt.sub(x, x_min_max[0]) / (x_min_max[1] - x_min_max[0]), x_min_max
+
+
+def rescale_data(x: pt.Tensor, x_min_max: list) -> pt.Tensor:
+    """
+    reverse the scaling of the data
+
+    :param x: normalized data
+    :param x_min_max: min- and max-value used for normalizing the data
+    :return: de-normalized data as tensor
+    """
+    # x = (x_max - x_min) * x_norm + x_min
+    return (x_min_max[1] - x_min_max[0]) * x + x_min_max[0]
+
+
 if __name__ == "__main__":
     pass

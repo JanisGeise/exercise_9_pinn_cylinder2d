@@ -45,7 +45,7 @@ if __name__ == "__main__":
         "k_variable": linspace(0.05, 0.95, 6),      # k-factors for ODE with k != const.
         "x_min": 0,                                 # min. x-value for PDE (3. case)
         "x_max": 1,                                 # max. x-value for PDE (3. case)
-        "t_min": 0.1,                              # min. t-value for PDE (3. case)
+        "t_min": 0.00,                              # min. t-value for PDE (3. case)
         "t_max": 100,                               # max. t-value for PDE (3. case)
         "alpha": 1e-3,                              # diffusion coefficient for PDE (3. case)
     }
