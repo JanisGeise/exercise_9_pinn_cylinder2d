@@ -45,7 +45,6 @@ if __name__ == "__main__":
         "k_variable": linspace(0.05, 0.95, 6),      # k-factors for ODE with k != const.
         "x_min": 0,                                 # min. x-value for PDE (3. case)
         "x_max": 1,                                 # max. x-value for PDE (3. case)
-        "t_min": 0.00,                              # min. t-value for PDE (3. case)
         "t_max": 100,                               # max. t-value for PDE (3. case)
         "alpha": 1e-3,                              # diffusion coefficient for PDE (3. case)
     }
@@ -64,5 +63,5 @@ if __name__ == "__main__":
     second_ode(load_path=setup["load_path"], k=setup["k_variable"], n_epochs=2000)
 
     # 1st PDE: diffusion equation
-    first_pde(load_path=setup["load_path"], x_min=setup["x_min"], x_max=setup["x_max"], n_epochs=10000,
-              alpha=setup["alpha"], t_start=setup["t_min"], t_end=setup["t_max"])
+    first_pde(load_path=setup["load_path"], x_min=setup["x_min"], x_max=setup["x_max"], n_epochs=7500,
+              alpha=setup["alpha"], t_end=setup["t_max"])

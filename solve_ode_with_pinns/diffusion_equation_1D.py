@@ -69,30 +69,29 @@ class PinnDiffusion1D(PINN):
         """
         t, x = args[0]["t"], args[0]["x"]
 
-        # make prediction for u(t = 0, x)
+        # make prediction for c(t = 0, x)
         out = model.forward(pt.stack([pt.zeros(t.size()), x], dim=1)).squeeze()
 
-        # compute loss for u(t = 0, x) = 0
+        # compute loss for c(t = 0, x) = 0
         mse = pt.nn.MSELoss()
         loss = mse(out, pt.zeros(out.size()))
 
         # since the training routine was implemented for ODE's, it has no boundary condition loss, so just add it here
-        loss += model.compute_loss_boundary_condition(model, t, n_x=x.size()[0])
+        loss += model.compute_loss_boundary_condition(model, t[1:])
         return loss
 
-    def compute_loss_boundary_condition(self, model, t: pt.Tensor, n_x: int) -> pt.Tensor:
+    def compute_loss_boundary_condition(self, model, t: pt.Tensor) -> pt.Tensor:
         """
         compute the loss for fulfilling the boundary condition
 
         :param model: PINN model
         :param t: time values
-        :param n_x: number of points in x-direction
         :return: loss for fulfilling the boundary condition(s)
         """
-        # make prediction for u(t, x = 0)
-        out = model.forward(pt.stack([t, pt.zeros(n_x)], dim=1)).squeeze()
+        # make prediction for c(t > 0, x = 0)
+        out = model.forward(pt.stack([t, pt.zeros(t.size())], dim=1)).squeeze()
 
-        # compute loss for u(t, x = 0) = 1
+        # compute loss for c(t > 0, x = 0) = 1
         mse = pt.nn.MSELoss()
         loss = mse(out, pt.ones(out.size()))
         return loss
@@ -233,9 +232,11 @@ def wrapper_execute_training(load_path: str, x_min: Union[int, float] = 0, x_max
     # compare analytical solution against the predicted one
     mesh_x, mesh_t = pt.meshgrid([pt.linspace(x_min, x_max, 50), pt.linspace(t_start, t_end, 100)], indexing="ij")
 
-    # compute analytical solution, set initial condition and scale to [0, 1]
-    c = compute_analytical_solution(mesh_x, mesh_t, 1e-3)
+    # compute analytical solution, set initial & boundary conditions and scale to [0, 1]
+    c = compute_analytical_solution(mesh_x, mesh_t, alpha)
     c[0, 0] = 0
+    # c[0, :] = 0
+    # c[1:, 0] = 1
     c, _ = scale_data(c)
     plot_prediction_vs_analytical_solution(load_path, pinn, mesh_x, mesh_t, c)
 
