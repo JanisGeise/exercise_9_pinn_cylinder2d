@@ -6,9 +6,9 @@
         with:
             alpha = const.
 
-            IC: c(t = 0, x) = 0
+            IC: c(t = 0, x) = 1
 
-            BC: c(t > 0, x = 0) = 1
+            BC: c(t > 0, x = 0) = 0
 
 """
 from utils import *
@@ -67,33 +67,35 @@ class PinnDiffusion1D(PINN):
         :param args: x-coordinates, and time values for which the equation is evaluated
         :return: losses for fulfilling the initial condition as well as losses for boundary condition
         """
-        t, x = args[0]["t"], args[0]["x"]
+        x_vals = lhs_sampling([args[0]["min_max_x"][0]], [args[0]["min_max_x"][1]], n_samples=args[0]["t"].size()[0])
 
         # make prediction for c(t = 0, x)
-        out = model.forward(pt.stack([pt.zeros(t.size()), x], dim=1)).squeeze()
+        out = model.forward(pt.stack([pt.zeros(args[0]["t"].size()), x_vals.squeeze()], dim=1))
 
-        # compute loss for c(t = 0, x) = 0
+        # compute loss for c(t = 0, x) = 1, and weight the importance wrt to all other losses computed
         mse = pt.nn.MSELoss()
-        loss = mse(out, pt.zeros(out.size()))
+        loss = mse(out, pt.ones(out.size())) * 0.75
 
         # since the training routine was implemented for ODE's, it has no boundary condition loss, so just add it here
-        loss += model.compute_loss_boundary_condition(model, t[1:])
+        loss += model.compute_loss_boundary_condition(model, args[0]["t"][1:], args[0]["min_max_t"]) * 0.4
         return loss
 
-    def compute_loss_boundary_condition(self, model, t: pt.Tensor) -> pt.Tensor:
+    def compute_loss_boundary_condition(self, model, t: pt.Tensor, t_bounds: list) -> pt.Tensor:
         """
         compute the loss for fulfilling the boundary condition
 
         :param model: PINN model
         :param t: time values
+        :param t_bounds: min- / max-values for t
         :return: loss for fulfilling the boundary condition(s)
         """
-        # make prediction for c(t > 0, x = 0)
-        out = model.forward(pt.stack([t, pt.zeros(t.size())], dim=1)).squeeze()
+        # make prediction for c(t > 0, x = 0) = 0
+        t_vals = lhs_sampling([t_bounds[0]], [t_bounds[1]], n_samples=t.size()[0]).squeeze()
+        out = model.forward(pt.stack([t_vals, pt.zeros(t_vals.size())], dim=1)).squeeze()
 
-        # compute loss for c(t > 0, x = 0) = 1
+        # compute loss for c(t > 0, x = 0) = 0
         mse = pt.nn.MSELoss()
-        loss = mse(out, pt.ones(out.size()))
+        loss = mse(out, pt.zeros(out.size()))
         return loss
 
 
@@ -172,7 +174,7 @@ def plot_prediction_vs_analytical_solution(save_path: str, model, mesh_x_ana, me
             # plot predicted solution
             c_pred = ax[p].contourf(mesh_x_ana, mesh_t_ana, out, levels=25)
             c_pred = plt.colorbar(c_pred, ax=ax[p])
-            c_pred.set_label("$c^*$ $\quad[-]$", usetex=True, labelpad=20, fontsize=14)
+            c_pred.set_label("$c$ $\quad[-]$", usetex=True, labelpad=20, fontsize=14)
             ax[p].set_title("$predicted$ $solution$", fontsize=16, usetex=True)
         ax[p].set_xlabel("$x\quad[m]$", fontsize=14, usetex=True)
     fig.subplots_adjust(hspace=0.05)
@@ -184,11 +186,13 @@ def plot_prediction_vs_analytical_solution(save_path: str, model, mesh_x_ana, me
 
 
 def wrapper_execute_training(load_path: str, x_min: Union[int, float] = 0, x_max: Union[int, float] = 1,
-                             n_epochs: Union[int, float] = 3000, n_points_pred: int = 10, n_points_eq: int = 50,
+                             n_epochs: Union[int, float] = 3000, n_points_pred: int = 50, n_points_eq: int = 1000,
                              t_start: Union[int, float] = 0, t_end: Union[int, float] = 1,
                              alpha: Union[int, float] = 1) -> None:
     """
     executes the model training, plots all losses and compares analytical solution to the predicted one
+
+    NOTE: results seem to depend highly on model architecture and number of sampled points for eq. and prediction
 
     :param load_path: path where everything should be saved to / loaded from
     :param x_min: strat x-value
@@ -202,17 +206,19 @@ def wrapper_execute_training(load_path: str, x_min: Union[int, float] = 0, x_max
     :return: None
     """
     # instantiate model: we want to predict an c(t, x) for a given t-value and x-value
-    pinn = PinnDiffusion1D(n_inputs=2, n_outputs=1, n_layers=5, n_neurons=50)
+    pinn = PinnDiffusion1D(n_inputs=2, n_outputs=1, n_layers=3, n_neurons=50)
 
     # use lhs to sample points for prediction and equation in given bounds
     t_eq, x_eq = lhs_sampling([t_start, x_min], [t_end, x_max], n_samples=n_points_eq)
     t_pred, x_pred = lhs_sampling([t_start, x_min], [t_end, x_max], n_samples=n_points_pred)
 
-    # scale everything to [0, 1]
+    """
+    # scale everything to [0, 1] -> yields weird results, so for now it's commented out
     t_eq, min_max_t_eq = scale_data(t_eq)
     x_eq, min_max_x_eq = scale_data(x_eq)
     t_pred, min_max_t_pred = scale_data(t_pred)
     x_pred, min_max_x_pred = scale_data(x_pred)
+    """
 
     # plot the sampled points
     plot_sampled_points(load_path, t_pred, x_pred, t_eq, x_eq)
@@ -224,20 +230,20 @@ def wrapper_execute_training(load_path: str, x_min: Union[int, float] = 0, x_max
     # train model using the sampled points
     losses = train_pinn(pinn, feature_pred.requires_grad_(True), label_pred.unsqueeze(-1).requires_grad_(True),
                         feature_eq.requires_grad_(True), label_eq.unsqueeze(-1).requires_grad_(True), epochs=n_epochs,
-                        save_path=load_path, equation_params={"alpha": alpha, "t": t_eq, "x": x_eq})
+                        save_path=load_path, equation_params={"alpha": alpha, "t": t_eq, "x": x_eq,
+                                                              "min_max_x": [pt.min(x_eq), pt.max(x_eq)],
+                                                              "min_max_t": [pt.min(t_eq), pt.max(t_eq)]})
 
     # plot the losses
     plot_losses(load_path, losses, case="1st_pde")
 
     # compare analytical solution against the predicted one
-    mesh_x, mesh_t = pt.meshgrid([pt.linspace(x_min, x_max, 50), pt.linspace(t_start, t_end, 100)], indexing="ij")
+    mesh_x, mesh_t = pt.meshgrid([pt.linspace(x_min, x_max, 200), pt.linspace(t_start, t_end, 250)], indexing="ij")
 
     # compute analytical solution, set initial & boundary conditions and scale to [0, 1]
     c = compute_analytical_solution(mesh_x, mesh_t, alpha)
     c[0, 0] = 0
-    # c[0, :] = 0
-    # c[1:, 0] = 1
-    c, _ = scale_data(c)
+    # c, _ = scale_data(c)
     plot_prediction_vs_analytical_solution(load_path, pinn, mesh_x, mesh_t, c)
 
 

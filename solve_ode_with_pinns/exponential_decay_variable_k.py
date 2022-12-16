@@ -133,8 +133,12 @@ def plot_prediction_vs_analytical_solution(save_path: str, load_path, model, t, 
     # plot analytical solution vs. predicted one
     for idx in range(x.size()[1]):
         if idx == 0:
-            plt.plot(t[:, idx], x[:, idx], color="black", label="analytical solution")
-            plt.plot(t[:, idx], x_pred[:, idx], color="red", label="predicted solution")
+            if idx not in k_test:
+                plt.plot(t[:, idx], x[:, idx], color="black", linestyle="--", label="analytical solution")
+                plt.plot(t[:, idx], x_pred[:, idx], color="red", linestyle="--", label="predicted solution")
+            else:
+                plt.plot(t[:, idx], x[:, idx], color="black", label="analytical solution")
+                plt.plot(t[:, idx], x_pred[:, idx], color="red", label="predicted solution")
         else:
             if idx not in k_test:
                 plt.plot(t[:, idx], x[:, idx], color="black", linestyle="--")
@@ -175,8 +179,8 @@ def wrapper_execute_training(load_path: str, k: Union[list, pt.Tensor], n_epochs
         x[:, idx], t[:, idx] = compute_analytical_solution(t_end=t_end, k=val)
 
     # use min- / max and one value in between for training / testing and the other k-values to test model on unseen data
-    # idx_train = pt.multinomial(k, num_samples=len(k)-3)       # poor accuracy when inter- / extrapolating
-    idx_train = pt.multinomial(k, num_samples=len(k))
+    idx_train = pt.multinomial(k, num_samples=len(k)-3)       # poor accuracy when extrapolating
+    # idx_train = pt.multinomial(k, num_samples=len(k))
     k_train = k[idx_train]
 
     # use latin hypercube sampling to sample points as feature-label pairs for prediction

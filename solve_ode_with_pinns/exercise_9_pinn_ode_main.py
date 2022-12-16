@@ -24,9 +24,9 @@
         with:
             alpha = const.
 
-            IC: c(t = 0, x) = 0
+            IC: c(t = 0, x) = 1
 
-            BC: c(t > 0, x = 0) = 1
+            BC: c(t > 0, x = 0) = 0
 
 """
 from os import path, mkdir
@@ -63,5 +63,5 @@ if __name__ == "__main__":
     second_ode(load_path=setup["load_path"], k=setup["k_variable"], n_epochs=2000)
 
     # 1st PDE: diffusion equation
-    first_pde(load_path=setup["load_path"], x_min=setup["x_min"], x_max=setup["x_max"], n_epochs=7500,
+    first_pde(load_path=setup["load_path"], x_min=setup["x_min"], x_max=setup["x_max"], n_epochs=5000,
               alpha=setup["alpha"], t_end=setup["t_max"])
