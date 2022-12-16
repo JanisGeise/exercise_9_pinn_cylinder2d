@@ -74,10 +74,10 @@ class PinnDiffusion1D(PINN):
 
         # compute loss for c(t = 0, x) = 1, and weight the importance wrt to all other losses computed
         mse = pt.nn.MSELoss()
-        loss = mse(out, pt.ones(out.size())) * 0.75
+        loss = mse(out, pt.ones(out.size())) * 0.5
 
         # since the training routine was implemented for ODE's, it has no boundary condition loss, so just add it here
-        loss += model.compute_loss_boundary_condition(model, args[0]["t"][1:], args[0]["min_max_t"]) * 0.4
+        loss += model.compute_loss_boundary_condition(model, args[0]["t"][1:], args[0]["min_max_t"]) * 0.75
         return loss
 
     def compute_loss_boundary_condition(self, model, t: pt.Tensor, t_bounds: list) -> pt.Tensor:
@@ -186,7 +186,7 @@ def plot_prediction_vs_analytical_solution(save_path: str, model, mesh_x_ana, me
 
 
 def wrapper_execute_training(load_path: str, x_min: Union[int, float] = 0, x_max: Union[int, float] = 1,
-                             n_epochs: Union[int, float] = 3000, n_points_pred: int = 50, n_points_eq: int = 1000,
+                             n_epochs: Union[int, float] = 3000, n_points_pred: int = 200, n_points_eq: int = 2000,
                              t_start: Union[int, float] = 0, t_end: Union[int, float] = 1,
                              alpha: Union[int, float] = 1) -> None:
     """
@@ -206,7 +206,7 @@ def wrapper_execute_training(load_path: str, x_min: Union[int, float] = 0, x_max
     :return: None
     """
     # instantiate model: we want to predict an c(t, x) for a given t-value and x-value
-    pinn = PinnDiffusion1D(n_inputs=2, n_outputs=1, n_layers=3, n_neurons=50)
+    pinn = PinnDiffusion1D(n_inputs=2, n_outputs=1, n_layers=2, n_neurons=250)
 
     # use lhs to sample points for prediction and equation in given bounds
     t_eq, x_eq = lhs_sampling([t_start, x_min], [t_end, x_max], n_samples=n_points_eq)
